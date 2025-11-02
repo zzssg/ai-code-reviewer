@@ -16,20 +16,35 @@ const app = express();
 app.use(express.json());
 
 let embedder = null;
+let embedderPromise = null;
 
-// Lazy-load model
 async function getEmbedder() {
-  if (!embedder) {
+  if (embedder) {
+    return embedder;
+  }
+
+  if (!embedderPromise) {
+    // First request triggers the loading
     console.log(`Loading local embedding model from MODELS_DIR: ${MODELS_DIR}`);
-    embedder = await pipeline(
+    embedderPromise = pipeline(
       "feature-extraction",
       path.join(".", "all-MiniLM-L6-v2")
-    );
-    console.log("Model loaded from", MODELS_DIR);
+    )
+      .then((model) => {
+        embedder = model;
+        console.log("Model loaded from", MODELS_DIR);
+        return embedder;
+      })
+      .catch((err) => {
+        // Reset promise on failure so future requests can retry
+        embedderPromise = null;
+        throw err;
+      });
   }
-  return embedder;
-}
 
+  // Await ongoing initialization if already started
+  return embedderPromise;
+}
 app.post("/api/embedding", async (req, res) => {
   let eb_duration = Date.now();
   try {
