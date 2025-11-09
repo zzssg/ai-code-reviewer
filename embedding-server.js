@@ -13,7 +13,7 @@ env.allowLocalModels = true;
 env.localModelPath = MODELS_DIR;
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 let embedder = null;
 let embedderPromise = null;
@@ -58,8 +58,8 @@ app.post("/api/embedding", async (req, res) => {
     const embedding = Array.from(result.data);
 
     res.json({ embedding });
-	eb_duration = Date.now() - eb_duration;
-	console.log(`Embeeding produced in ${eb_duration} ms`);
+    eb_duration = Date.now() - eb_duration;
+    console.log(`Embeeding produced in ${eb_duration} ms. Text length: ${text.length}`);
   } catch (err) {
     console.error("Embedding error:", err);
     res.status(500).json({ error: err.message });
