@@ -1,3 +1,6 @@
+import crypto from "crypto";
+import { Client } from "@opensearch-project/opensearch";
+
 export const INDEX_NAME = "repo-code-embeddings";
 export const PATH_TO_REPO = "../OpenSearch/";
 
@@ -76,4 +79,25 @@ Please provide a detailed review with:
 export function getOsClient() {
   if (!osClient) osClient = new Client({ node: "http://localhost:9200" });
   return osClient;
+}
+
+export function fileChecksum(text) {
+  return crypto.createHash("sha256").update(text, "utf8").digest("hex");
+}
+
+export async function runLimited(tasks, limit = 4) {
+  const results = [];
+  let i = 0;
+
+  async function worker() {
+    while (i < tasks.length) {
+      const taskIndex = i++;
+      results[taskIndex] = await tasks[taskIndex]();
+    }
+  }
+
+  const workers = Array.from({ length: limit }, worker);
+  await Promise.all(workers);
+
+  return results;
 }

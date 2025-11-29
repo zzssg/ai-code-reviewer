@@ -7,10 +7,19 @@ A minimal Express-based API for generating text embeddings using a **locally sto
 ```bash
 npm install express @xenova/transformers
 ```
-## Run
+## Run single embedding server
 
 ```bash
 node embedding-server.js
+```
+
+## Run embedding server cluster
+
+```bash
+# To run cluster with 4 workers
+WORKERS=4 node embed-server-cluster.js
+
+# If WORKERS param is ommited - single worker would be serving the cluster
 ```
 ## API
 
