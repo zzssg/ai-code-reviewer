@@ -52,6 +52,7 @@ Where the payload denoted by create-opensearch-index.json is:
         "filename": { "type": "keyword" },
         "filepath": { "type": "keyword" },
         "language": { "type": "keyword" },
+        "checksum": { "type": "text" },
         "content": { "type": "text" },
         "embedding": {
           "type": "knn_vector",

@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { embedText, getOsClient, fileChecksum, INDEX_NAME, PATH_TO_REPO } from "./utils.js";
+import { embedText, getOsClient, fileChecksum, runLimited, INDEX_NAME, PATH_TO_REPO } from "./utils.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -68,7 +68,8 @@ async function indexRepo(baseDir) {
   // Run with parallelism = 4
   startTS = Date.now();
   await runLimited(tasks, 4);
-  console.log(`Indexing completed in ${(Date.now() - startTS)}ms`);
+  const duration = Date.now() - startTS;
+  console.log(`Indexing completed in ${duration > 1000 ? duration/1000 + 'sec' : ducration + ' ms'}`);
 }
 
 await indexRepo(PATH_TO_REPO);

@@ -71,7 +71,7 @@ else {
 
   app.post("/api/embedding", async (req, res) => {
     try {
-      const text = req.body.text;
+      const text = req.body?.text;
       if (!text) {
         return res.status(400).json({ error: "Missing 'text'" });
       }
