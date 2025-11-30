@@ -23,11 +23,18 @@ async function getFiles(dir, exts = [".js", ".ts", ".java", ".py"]) {
 
 async function getStoredChecksum(filePath) {
   try {
-    const res = await getOsClient().get({
+    const res = await getOsClient().search({
       index: INDEX_NAME,
-      id: filePath
+      body: {
+        query: {
+          ids: {
+            values: [filePath]
+          }
+        }
+      }
     });
-    return res._source.checksum;
+    const hit = res.body?.hits?.hits?.[0];
+    return hit?._source?.checksum ?? null;
   } catch (err) {
     // Not found
     return null;
@@ -50,28 +57,31 @@ async function indexRepo(baseDir) {
   log.info("Parallel tasks preparation started...");
   const tasks = files.map(f => async () => {
     totalFiles++;
+  
+    // Convert absolute path -> relative repo path with forward slashes
+    const relPath = path.relative(baseDir, f).replace(/\\/g, "/");
+  
     const content = await fs.promises.readFile(f, "utf8");
     const checksum = fileChecksum(content);
-    const existing = await getStoredChecksum(f);
-
+    const existing = await getStoredChecksum(relPath);
+  
     if (existing === checksum) {
-      log.info(`Skipping unchanged file: ${f}`);
       skippedDuplicates++;
       return;
     }
-
-    startTS = Date.now();
+  
+    const start = Date.now();
     const emb = await embedText(content);
-
+  
     embedCalls++;
-    embedLatencies.push(Date.now() - startTS);
-
+    embedLatencies.push(Date.now() - start);
+  
     await getOsClient().index({
       index: INDEX_NAME,
-      id: f,
+      id: relPath,
       body: {
         filename: path.basename(f),
-        filepath: f,
+        filepath: relPath,
         language: path.extname(f),
         content,
         checksum,
@@ -83,12 +93,13 @@ async function indexRepo(baseDir) {
 
   log.info("Starting indexing...");
 
-  // Run with parallelism = 4
-  startTS = Date.now();
-  await runLimited(tasks, 4);
-  const duration = Date.now() - startTS;
-  log.info(`Indexing completed in ${duration > 1000 ? duration/1000 + 'sec' : duration + ' ms'}`);
+  // Run with parallelism = 2
+  let startTSmain = Date.now();
+  await runLimited(tasks, 2);
+  const duration = Date.now() - startTSmain;
+  log.info(`Indexing completed in ${duration > 1000 ? duration/1000 + ' sec' : duration + ' ms'}`);
 
+  embedLatencies.sort((a, b) => a - b);
   const min = embedLatencies[0] ?? 0;
   const max = embedLatencies[embedLatencies.length - 1] ?? 0;
   const p50 = percentile(embedLatencies, 50);
@@ -101,7 +112,7 @@ async function indexRepo(baseDir) {
   `\nMax latency:              ${max} ms` +
   `\nP50 latency:              ${p50} ms` +
   `\nTotal indexing time:      ${duration > 1000 ? (duration/1000 + ' sec') : (duration + ' ms')}` +
-  "n\==========================\n");
+  `\n==========================`);
 }
 
 await indexRepo(PATH_TO_REPO);
