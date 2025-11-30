@@ -1,7 +1,13 @@
 import express from "express";
 import axios from "axios";
-import { Client } from "@opensearch-project/opensearch";
 import { searchContext, reviewPullRequest } from "./utils.js";
+
+// ---------------------------------------------------------------------------
+// LOGGER SETUP
+// ---------------------------------------------------------------------------
+import createLogger from "./logger.js";
+const log = createLogger(import.meta.url);
+// ---------------------------------------------------------------------------
 
 const app = express();
 app.use(express.json());
@@ -33,4 +39,4 @@ app.post("/bitbucket/pr-event", async (req, res) => {
   res.sendStatus(200);
 });
 
-app.listen(3000, () => console.log("PR Review Bot listening on :3000"));
+app.listen(3000, () => log.info("PR Review Bot listening on :3000"));

@@ -3,6 +3,12 @@ import { pipeline, env } from "@xenova/transformers";
 import path from "path";
 import { fileURLToPath } from "url";
 
+// ---------------------------------------------------------------------------
+// LOGGER SETUP
+// ---------------------------------------------------------------------------
+import createLogger from "./logger.js";
+const log = createLogger(import.meta.url);
+// ---------------------------------------------------------------------------
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const MODELS_DIR = path.join(__dirname, "models");
@@ -25,14 +31,14 @@ async function getEmbedder() {
 
   if (!embedderPromise) {
     // First request triggers the loading
-    console.log(`Loading local embedding model from MODELS_DIR: ${MODELS_DIR}`);
+    log.info(`Loading local embedding model from MODELS_DIR: ${MODELS_DIR}`);
     embedderPromise = pipeline(
       "feature-extraction",
       path.join(".", "all-MiniLM-L6-v2")
     )
       .then((model) => {
         embedder = model;
-        console.log("Model loaded from", MODELS_DIR);
+        log.info("Model loaded from", MODELS_DIR);
         return embedder;
       })
       .catch((err) => {
@@ -59,7 +65,7 @@ app.post("/api/embedding", async (req, res) => {
 
     res.json({ embedding });
     eb_duration = Date.now() - eb_duration;
-    console.log(`Embeeding produced in ${eb_duration} ms. Text length: ${text.length}`);
+    log.info(`Embeeding produced in ${eb_duration} ms. Text length: ${text.length}`);
   } catch (err) {
     console.error("Embedding error:", err);
     res.status(500).json({ error: err.message });
@@ -68,5 +74,5 @@ app.post("/api/embedding", async (req, res) => {
 
 const PORT = 3000;
 app.listen(PORT, () =>
-  console.log(`Local embedding server running on http://localhost:${PORT}`)
+  log.info(`Local embedding server running on http://localhost:${PORT}`)
 );

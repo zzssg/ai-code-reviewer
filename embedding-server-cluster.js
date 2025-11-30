@@ -6,6 +6,12 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 // ---------------------------------------------------------------------------
+// LOGGER SETUP
+// ---------------------------------------------------------------------------
+import createLogger from "./logger.js";
+const log = createLogger(import.meta.url);
+
+// ---------------------------------------------------------------------------
 // CONFIG
 // ---------------------------------------------------------------------------
 const __filename = fileURLToPath(import.meta.url);
@@ -25,18 +31,18 @@ env.localModelPath = MODELS_DIR;
 // MASTER PROCESS
 // ---------------------------------------------------------------------------
 if (cluster.isPrimary) {
-  console.log(`Master ${process.pid} starting ${WORKERS} workers...`);
+  log.info(`Master ${process.pid} starting ${WORKERS} workers...`);
 
   for (let i = 0; i < WORKERS; i++) {
     cluster.fork();
   }
 
   cluster.on("exit", (worker) => {
-    console.log(`Worker ${worker.process.pid} died. Restarting...`);
+    log.info(`Worker ${worker.process.pid} died. Restarting...`);
     cluster.fork();
   });
 
-  console.log(`Embedding server running with ${WORKERS} workers on port ${PORT}`);
+  log.info(`Embedding server running with ${WORKERS} workers on port ${PORT}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -51,14 +57,14 @@ else {
     if (embedder) return embedder;
 
     if (!embedderPromise) {
-      console.log(`[Worker ${process.pid}] Loading model from ${MODELS_DIR}...`);
+      log.info(`[Worker ${process.pid}] Loading model from ${MODELS_DIR}...`);
 
       embedderPromise = pipeline(
         "feature-extraction",
         path.join(".", MODEL_NAME)
       ).then(model => {
         embedder = model;
-        console.log(`[Worker ${process.pid}] Model loaded`);
+        log.info(`[Worker ${process.pid}] Model loaded`);
         return model;
       });
     }
@@ -89,6 +95,6 @@ else {
   });
 
   app.listen(PORT, () => {
-    console.log(`[Worker ${process.pid}] Listening on port ${PORT}`);
+    log.info(`[Worker ${process.pid}] Listening on port ${PORT}`);
   });
 }
