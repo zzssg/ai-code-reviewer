@@ -87,7 +87,7 @@ async function indexRepo(baseDir) {
   startTS = Date.now();
   await runLimited(tasks, 4);
   const duration = Date.now() - startTS;
-  log.info(`Indexing completed in ${duration > 1000 ? duration/1000 + 'sec' : ducration + ' ms'}`);
+  log.info(`Indexing completed in ${duration > 1000 ? duration/1000 + 'sec' : duration + ' ms'}`);
 
   const min = embedLatencies[0] ?? 0;
   const max = embedLatencies[embedLatencies.length - 1] ?? 0;
