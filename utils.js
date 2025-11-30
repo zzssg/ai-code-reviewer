@@ -101,3 +101,9 @@ export async function runLimited(tasks, limit = 4) {
 
   return results;
 }
+
+export function percentile(arr, p) {
+  if (arr.length === 0) return 0;
+  const index = Math.floor((p / 100) * arr.length);
+  return arr[index];
+}
