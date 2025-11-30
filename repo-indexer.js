@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { embedText, getOsClient, fileChecksum, runLimited, INDEX_NAME, PATH_TO_REPO } from "./utils.js";
+import { embedText, getOsClient, fileChecksum, runLimited, percentile, INDEX_NAME, PATH_TO_REPO } from "./utils.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -35,6 +35,11 @@ async function getStoredChecksum(filePath) {
 }
 
 async function indexRepo(baseDir) {
+  let totalFiles = 0;
+  let embedCalls = 0;
+  let embedLatencies = [];
+  let skippedDuplicates = 0;
+
   let startTS = Date.now();
   log.info(`Starting indexing of repo at ${baseDir} ...`);
   const files = await getFiles(baseDir);
@@ -44,16 +49,22 @@ async function indexRepo(baseDir) {
   startTS = Date.now();
   log.info("Parallel tasks preparation started...");
   const tasks = files.map(f => async () => {
+    totalFiles++;
     const content = await fs.promises.readFile(f, "utf8");
     const checksum = fileChecksum(content);
     const existing = await getStoredChecksum(f);
 
     if (existing === checksum) {
       log.info(`Skipping unchanged file: ${f}`);
+      skippedDuplicates++;
       return;
     }
 
+    startTS = Date.now();
     const emb = await embedText(content);
+
+    embedCalls++;
+    embedLatencies.push(Date.now() - startTS);
 
     await getOsClient().index({
       index: INDEX_NAME,
@@ -77,6 +88,20 @@ async function indexRepo(baseDir) {
   await runLimited(tasks, 4);
   const duration = Date.now() - startTS;
   log.info(`Indexing completed in ${duration > 1000 ? duration/1000 + 'sec' : ducration + ' ms'}`);
+
+  const min = embedLatencies[0] ?? 0;
+  const max = embedLatencies[embedLatencies.length - 1] ?? 0;
+  const p50 = percentile(embedLatencies, 50);
+
+  log.info("\n===== INDEXING STATS =====" +
+  `\nFiles processed:          ${totalFiles}` +
+  `\nEmbedding calls:          ${embedCalls}` +
+  `\nDuplicates skipped:       ${skippedDuplicates}` +
+  `\nMin latency:              ${min} ms` +
+  `\nMax latency:              ${max} ms` +
+  `\nP50 latency:              ${p50} ms` +
+  `\nTotal indexing time:      ${duration > 1000 ? (duration/1000 + ' sec') : (duration + ' ms')}` +
+  "n\==========================\n");
 }
 
 await indexRepo(PATH_TO_REPO);
