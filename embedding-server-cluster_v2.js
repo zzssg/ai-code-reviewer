@@ -75,25 +75,24 @@ function meanPool(hiddenStates, attentionMask) {
 // --- Generate embedding ---
 async function getEmbedding(text) {
   const { inputIds, attentionMask } = tokenize(text);
-  const seqLength = inputIds.length;
 
   // Create tensors
   const inputIdsTensor = new ort.Tensor(
     "int64",
     BigInt64Array.from(inputIds.map(BigInt)),
-    [1, seqLength]
+    [1, inputIds.length]
   );
 
   const attentionMaskTensor = new ort.Tensor(
     "int64",
     BigInt64Array.from(attentionMask.map(BigInt)),
-    [1, seqLength]
+    [1, attentionMask.length]
   );
 
   const tokenTypeIdsTensor = new ort.Tensor(
     "int64",
-    BigInt64Array.from(new Array(seqLength).fill(0).map(BigInt)),
-    [1, seqLength]
+    BigInt64Array.from(new Array(inputIds.length).fill(0).map(BigInt)),
+    [1, inputIds.length]
   );
 
   const feeds = {
