@@ -1,0 +1,29 @@
+{
+    "settings": {
+      "index": {
+        "knn": true,
+        "number_of_shards": 1,
+        "number_of_replicas": 1
+      }
+    },
+    "mappings": {
+    "properties": {
+      "filepath": { "type": "keyword" },
+      "filename": { "type": "keyword" },
+      "content": { "type": "text" },
+      "start_line": { "type": "integer" },
+      "end_line": { "type": "integer" },
+      "function_name": { "type": "keyword" },
+      "importance": { "type": "float" },
+      "embedding": {
+          "type": "knn_vector",
+          "dimension": 384,
+          "method": {
+            "name": "hnsw",
+            "engine": "faiss",
+            "space_type": "cosinesimil"
+          }
+        }
+    }
+  }
+}

@@ -32,10 +32,14 @@ const UNK_TOKEN = "[UNK]";
 // --- Minimal tokenizer ---
 function tokenize(text, maxLength = 128) {
   const tokens = text.trim().split(/\s+/).slice(0, maxLength - 2);
-  const inputTokens = [CLS_TOKEN, ...tokens, SEP_TOKEN];
+  const inputTokens = ["[CLS]", ...tokens, "[SEP]"];
 
-  const inputIds = inputTokens.map(t => vocab[t] ?? vocab[UNK_TOKEN] ?? 0);
-  const attentionMask = inputIds.map(id => (id === (vocab[PAD_TOKEN] ?? 0) ? 0 : 1));
+  const inputIds = inputTokens.map(t => {
+    const id = vocab[t] ?? vocab["[UNK]"] ?? 0;
+    return typeof id === "number" ? id : 0;
+  });
+
+  const attentionMask = inputIds.map(id => (id === (vocab["[PAD]"] ?? 0) ? 0 : 1));
 
   return { inputIds, attentionMask };
 }

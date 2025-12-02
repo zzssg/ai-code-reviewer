@@ -1,8 +1,8 @@
 import crypto from "crypto";
 import { Client } from "@opensearch-project/opensearch";
 
-export const INDEX_NAME = "repo-code-embeddings";
-export const PATH_TO_REPO = "../OpenSearch/";
+export const INDEX_NAME = process.env.EMB_INDEX_NAME || "repo-code-embeddings-chunks";
+export const PATH_TO_REPO = process.env.EMB_PATH_TO_REPO || "../OpenSearch/";
 
 let osClient = undefined;
 
@@ -20,11 +20,11 @@ export async function embedText(text) {
 
   const data = await response.json();
 
-  if (!data.embedding) {
-    throw new Error("Invalid response: missing 'embedding' field");
+  if (!data.embeddings) {
+    throw new Error("Invalid response: missing 'embeddings' field");
   }
 
-  return data.embedding;
+  return data.embeddings;
 }
 
 export async function searchContext(queryText) {
