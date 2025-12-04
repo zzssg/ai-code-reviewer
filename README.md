@@ -1,6 +1,6 @@
 # Local Embedding Server
 
-A minimal Express-based API for generating text embeddings using a **locally stored** Transformer model (`all-MiniLM-L6-v2`) via `@xenova/transformers`.
+A minimal Express-based API for generating text embeddings using a **locally stored** Transformer model (`all-MiniLM-L6-v2`).
 
 ## Setup
 
