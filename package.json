@@ -2,11 +2,11 @@
   "name": "embedding-server",
   "version": "1.0.0",
   "type": "module",
-  "main": "embedding-server.js",
+  "main": "embedding-server-cluster-chunks.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "author": "zzssg",
+  "author": "Sergei Ikonnikov <s.v.ikonnikov@gmail.com>",
   "license": "ISC",
   "description": "",
   "dependencies": {
