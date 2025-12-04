@@ -3,11 +3,15 @@ import { Client } from "@opensearch-project/opensearch";
 
 export const INDEX_NAME = process.env.EMB_INDEX_NAME || "repo-code-embeddings-chunks";
 export const PATH_TO_REPO = process.env.EMB_PATH_TO_REPO || "../OpenSearch/";
+export const EMB_ENDPOINT = process.env.EMB_ENDPOINT || "http://localhost:3000/api/embedding";
+export const OS_ENDPOINT = process.env.EMB_OS_ENDPOINT ||"http://localhost:9200";
+
+export const EMB_SIZE = 384; // Embedding size
 
 let osClient = undefined;
 
 export async function embedText(text) {
-  const response = await fetch("http://localhost:3000/api/embedding", {
+  const response = await fetch(EMB_ENDPOINT, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
@@ -77,7 +81,7 @@ Please provide a detailed review with:
 }
 
 export function getOsClient() {
-  if (!osClient) osClient = new Client({ node: "http://localhost:9200" });
+  if (!osClient) osClient = new Client({ node: OS_ENDPOINT });
   return osClient;
 }
 
