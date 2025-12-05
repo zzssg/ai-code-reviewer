@@ -1,0 +1,1 @@
+curl -X PUT "http://localhost:9200/repo-code-embeddings" -u admin:admin -H "Content-Type: application/json" -d @create-opensearch-index.json

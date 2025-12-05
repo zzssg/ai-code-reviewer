@@ -1,0 +1,105 @@
+services:
+  embedding-server:
+    image: embedding-server
+    container_name: embedding-server
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: 3000
+      EMB_WORKERS: 2
+      EMB_OS_ENDPOINT: "http://opensearch-node1:9200"
+      EMB_ENDPOINT: "http://embedding-server:3000/api/embedding"
+      EMB_INDEX_NAME: "repo-code-embeddings-chunks"
+    networks:
+      - code-reviewer-network
+    depends_on:
+      - opensearch-node1
+  opensearch-node1:
+    image: opensearchproject/opensearch:latest
+    container_name: opensearch-node1
+    environment:
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - "OPENSEARCH_JAVA_OPTS=-Xms2g -Xmx2g"
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=k3JWNEQr_
+      - plugins.security.disabled=true
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    ports:
+      - "9200:9200"
+      - "9600:9600"
+    networks:
+      - code-reviewer-network
+    command: >
+      bash -c "
+        ./bin/opensearch-plugin list | grep -q 'opensearch-knn' ||
+        ./bin/opensearch-plugin install --batch opensearch-knn;
+        ./opensearch-docker-entrypoint.sh
+      "
+
+  dashboards:
+    image: opensearchproject/opensearch-dashboards:latest
+    container_name: opensearch-dashboards
+    environment:
+      - OPENSEARCH_HOSTS=["http://opensearch-node1:9200"]
+      - DISABLE_SECURITY_DASHBOARDS_PLUGIN=true
+      - OPENSEARCH_SSL_VERIFICATIONMODE=none
+      - OPENSEARCH_USERNAME=kibanaserver # Or your configured user
+      - OPENSEARCH_PASSWORD=kibanaserver # Or your configured password
+      - SERVER_HOST="0.0.0.0"
+      - OPENSEARCH_SSL_VERIFICATIONMODE=none
+    ports:
+      - "5601:5601"
+    networks:
+      - code-reviewer-network
+    depends_on:
+      - opensearch-node1
+  postgres:
+    image: postgres:14
+    container_name: bitbucket-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: bitbucket
+      POSTGRES_USER: bitbucket
+      POSTGRES_PASSWORD: bitbucket
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - code-reviewer-network
+
+  bitbucket:
+    image: atlassian/bitbucket:9.1
+    container_name: bitbucket
+    depends_on:
+      - postgres
+    restart: unless-stopped
+    ports:
+      - "7990:7990"     # HTTP
+      - "7999:7999"     # SSH for git@...
+    networks:
+      - code-reviewer-network
+    environment:
+      JVM_MINIMUM_MEMORY: "2g"
+      JVM_MAXIMUM_MEMORY: "4g"
+      ATL_JDBC_URL: "jdbc:postgresql://postgres:5432/bitbucket"
+      ATL_JDBC_USER: "bitbucket"
+      ATL_JDBC_PASSWORD: "bitbucket"
+      # prevent startup wizard requiring a mount
+      BITBUCKET_HOME: /var/atlassian/application-data/bitbucket
+    volumes:
+      - bitbucket_home:/var/atlassian/application-data/bitbucket
+
+volumes:
+  opensearch-data:
+  postgres_data:
+  bitbucket_home:
+  
+networks:
+  code-reviewer-network:
+    driver: bridge

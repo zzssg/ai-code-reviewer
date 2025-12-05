@@ -4,7 +4,7 @@
   "type": "module",
   "main": "embedding-server-cluster-chunks.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node embedding-server-cluster-chunks.js"
   },
   "author": "Sergei Ikonnikov <s.v.ikonnikov@gmail.com>",
   "license": "ISC",
