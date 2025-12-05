@@ -16,7 +16,7 @@ Key features:
 - RESTful API endpoint at `/api/embedding`
 
 ### 2. Repository Indexer
-**File:** [repo-indexer-chunks.js](file://c:\Users\Sergei\workspace\embedding-server\repo-indexer-chunks.js)
+**File:** `repo-indexer-chunks.js`
 
 Scans source code repositories, creates embeddings for code chunks, and stores them in OpenSearch for later retrieval. 
 
@@ -29,7 +29,7 @@ Process:
 Supports multiple languages including JavaScript, TypeScript, Java, and Python with language-specific parsing.
 
 ### 3. Pull Request Reviewer
-**File:** [pr-reviewer-chunks.js](file://c:\Users\Sergei\workspace\embedding-server\pr-reviewer-chunks.js)
+**File:** `pr-reviewer-chunks.js`
 
 Implements Retrieval-Augmented Generation (RAG) for automated pull request reviews. Listens for BitBucket webhook events and performs contextual code reviews.
 
@@ -45,12 +45,12 @@ This approach significantly improves review quality by providing the LLM with re
 ## Auxiliary Features
 
 ### Test Code Identification
-**File:** [mark-tests.js](file://c:\Users\Sergei\workspace\embedding-server\mark-tests.js)
+**File:** `mark-tests.js`
 
 Automatically identifies and marks test code in the OpenSearch index with an `is_test` flag. Uses filepath patterns and naming conventions to distinguish test files from production code.
 
 ### Semantic Test Coverage Analysis
-**File:** [test-coverage-report.js](file://c:\Users\Sergei\workspace\embedding-server\test-coverage-report.js)
+**File:** `test-coverage-report.js`
 
 Analyzes the semantic relationship between test code and production code to calculate coverage percentages. Computes a "coverage_percent" value for each production code chunk based on its semantic similarity to existing test code.
 
