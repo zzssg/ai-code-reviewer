@@ -312,7 +312,7 @@ async function buildFinalReviewPrompt(prMeta, diff) {
   sb.push(`Given the PR metadata, hunks, and context, output the following (strict limits):\n`);
   sb.push(`Purpose (1–2 short sentences)\n`);
   sb.push(`Key issues (3–5 bullets, each max 1 line)\n`);
-  sb.push(`Verdict: “Approve” or “Request changes” + 1 line reason\n`);
+  sb.push(`Verdict: “✅Approve” or “❌Request changes” + 1 line reason\n`);
   sb.push(`Do NOT include long explanations, code blocks, or restatements of code.`);
   sb.push(`Keep the entire answer under ~700 characters.\n`);
   sb.push(`You are an expert pull-request reviewer. Review the following pull request composed of several hunks.\n`);

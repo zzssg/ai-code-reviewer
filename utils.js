@@ -1,3 +1,4 @@
+import axios from "axios";
 import crypto from "crypto";
 import { Client } from "@opensearch-project/opensearch";
 
@@ -6,7 +7,7 @@ export const PATH_TO_REPO = process.env.EMB_PATH_TO_REPO || "../OpenSearch/";
 export const EMB_ENDPOINT = process.env.EMB_ENDPOINT || "http://localhost:3000/api/embedding";
 export const OS_ENDPOINT = process.env.EMB_OS_ENDPOINT ||"http://localhost:9200";
 export const LLM_REVIEW_MODEL = process.env.LLM_REVIEW_MODEL || "qwen3-coder-30b-a3b-instruct-ud";
-export const LLM_REVIEW_ENDPOINT = process.env.LLM_ENDPOINT || "http://localhost:1234/v1/responses";
+export const LLM_REVIEW_ENDPOINT = process.env.LLM_REVIEW_ENDPOINT || "http://localhost:1234/v1/responses";
 
 export const EMB_SIZE = 384; // Embedding size
 
@@ -54,14 +55,20 @@ export async function searchContext(queryText) {
 }
 
 export async function queryLLM(prompt) {
+  try {
     const payload = {
       "model": LLM_REVIEW_MODEL,
       "input": prompt,
       "stream": false
     };
     const headers = { "Content-Type": "application/json" };
-    const LlmRawResult = await axios.get(LLM_REVIEW_ENDPOINT, { headers });
-    return LlmRawResult.data.output?.content?.text || "NO RESPONSE FROM LLM";
+    const LlmRawResult = await axios.post(LLM_REVIEW_ENDPOINT, payload, { headers });
+    return LlmRawResult.data.output[0]?.content[0]?.text || "NO RESPONSE FROM LLM";
+  } catch (err) {
+    console.error("LLM query failed: ", err);
+    return "LLM QUERY FAILED";
+  }
+    
 }
 
 export async function reviewPullRequest({ description, diff, context }) {
