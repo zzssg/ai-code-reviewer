@@ -24,7 +24,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const blackList = [
   "bundle.js",
   "README.md",
-  "package-info.java"
+  "package-info.java",
+  "jquery-slim.min.js",
+  "bootstrap.min.js",
+  "LICENSE",
+
 ];
 
 // -----------------------------
@@ -313,7 +317,7 @@ async function indexRepo(baseDir) {
 
   log.info(
     "\n===== INDEXING STATS =====" +
-    `\nChunks processed:          ${totalChunks}` +
+    `\nChunks processed:         ${totalChunks}` +
     `\nEmbedding calls:          ${embedCalls}` +
     `\nDuplicates skipped:       ${skippedDuplicates}` +
     `\nMin latency:              ${min} ms` +

@@ -1,275 +1,412 @@
-// pr-reviewer.js
 import express from "express";
 import axios from "axios";
-import { getOsClient, queryLLM } from "./utils.js";
-import { embedText } from "./utils.js";
-import parseDiff from "parse-diff";
+import path from "path";
+import { getOsClient, embedText, queryLLM, INDEX_NAME } from "./utils.js";
 
 import createLogger from "./logger.js";
 const log = createLogger(import.meta.url);
 
+const PORT = process.env.PORT || 3001;
+const BITBUCKET_TOKEN = process.env.BITBUCKET_TOKEN;
+// IMPORTANT: make this the API root, not including "/projects/..."
+const BITBUCKET_BASE = process.env.BITBUCKET_BASE || "http://bitbucket:7990/rest/api/1.0";
+
+if (!BITBUCKET_TOKEN) {
+  log.error("BITBUCKET_TOKEN environment variable is not set");
+  process.exit(1);
+}
+
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
+
+const TOP_K = 10;
 
 /**
- * Parse unified diff text (git / bitbucket) and return per-file hunks:
- * [{ filepath, hunks: [{ newStart, newLines, newEnd }, ...] }, ...]
+ * Convert Bitbucket diff → hunks containing ONLY changed lines.
+ *
+ * Rule:
+ *   If REMOVED and ADDED exist for the same destination line → keep ADDED only.
  */
-function extractHunksFromDiff(diffText) {
-  const files = parseDiff(diffText); // parse-diff returns array of files with hunks
-  const out = [];
-
-  for (const f of files) {
-    // choose destination path (new file name). parse-diff sets to f.to
-    const filepath = f.to || f.from;
-    if (!filepath) continue;
-    const hunks = (f.chunks || []).map(h => {
-      // each chunk has newStart and newLines
-      const newStart = h.newStart;
-      const newLines = h.newLines;
-      const newEnd = newStart + (newLines || 0) - 1;
-      return { newStart, newEnd, lines: newLines };
-    });
-    out.push({ filepath, hunks });
-  }
-  return out;
-}
-
-/**
- * Get candidate chunk docs for a given filepath and hunk range.
- * We query documents with id prefix filepath::chunk_ or filepath::chunk_X::sub_Y
- * and filter those whose start_line <= hunk_end && end_line >= hunk_start.
- * Returns array of docs { _id, _source }.
- */
-async function getCandidateChunksForHunk(filepath, hunkStart, hunkEnd, os) {
-  // Query by filepath prefix and line overlap.
-  // OpenSearch: search for docs with filepath == filepath and line overlap.
-  const q = {
-    bool: {
-      must: [
-        { term: { filepath } },
-        {
-          bool: {
-            should: [
-              { range: { start_line: { lte: hunkEnd } } },
-              { range: { end_line: { gte: hunkStart } } }
-            ]
-          }
-        }
-      ]
-    }
-  };
-
-  const res = await os.search({
-    index: process.env.INDEX_NAME || "repo-code-embeddings",
-    body: {
-      size: 200, // fetch a reasonable candidate set
-      query: q,
-      _source: ["filepath", "filename", "start_line", "end_line", "function_name", "content", "embedding", "importance"]
-    }
-  });
-
-  return (res.body.hits.hits || []).map(h => ({ id: h._id, source: h._source, score: h._score }));
-}
-
-/**
- * Cosine similarity utility for vectors (assumes float arrays)
- */
-function dot(a, b) {
-  let s = 0;
-  for (let i = 0; i < a.length; i++) s += a[i] * b[i];
-  return s;
-}
-function norm(a) {
-  let s = 0;
-  for (let i = 0; i < a.length; i++) s += a[i] * a[i];
-  return Math.sqrt(s);
-}
-function cosine(a, b) {
-  const n1 = norm(a);
-  const n2 = norm(b);
-  if (n1 === 0 || n2 === 0) return 0;
-  return dot(a, b) / (n1 * n2);
-}
-
-/**
- * Search context: produce relevant chunk-level contexts for given query text (description+diff).
- * We:
- *  - obtain query embeddings (array)
- *  - for every changed file/hunk, fetch candidate chunks that overlap the hunk,
- *    compute cosine similarity locally for each candidate using each query vector,
- *    multiply by importance, and aggregate top results.
- *  - if no hunks matched, we fallback to global knn search using the first query vector.
- */
-async function searchContext(queryText, parsedDiff) {
-  const os = getOsClient();
-  const queryEmbeddings = await embedText(queryText); // array of vectors
-
-  let allMatches = [];
-
-  // If parsedDiff provided, prioritize hunks
-  if (parsedDiff && parsedDiff.length > 0) {
-    for (const fileDiff of parsedDiff) {
-      const filepath = fileDiff.filepath.replace(/^\//, "");
-      for (const hunk of fileDiff.hunks) {
-        const hStart = hunk.newStart;
-        const hEnd = hunk.newEnd;
-
-        // fetch candidate docs overlapping this hunk
-        const candidates = await getCandidateChunksForHunk(filepath, hStart, hEnd, os);
-
-        // compute similarity for each candidate against each query vector
-        for (const cand of candidates) {
-          const emb = cand.source.embedding;
-          if (!Array.isArray(emb) || emb.length === 0) continue;
-          for (const qv of queryEmbeddings) {
-            const sim = cosine(emb, qv);
-            const weighted = sim * (cand.source.importance ?? 1.0);
-            allMatches.push({
-              score: weighted,
-              filepath: cand.source.filepath,
-              function_name: cand.source.function_name,
-              start_line: cand.source.start_line,
-              end_line: cand.source.end_line,
-              content: cand.source.content,
-              importance: cand.source.importance ?? 1.0
-            });
-          }
-        }
-      }
-    }
+function transformBitbucketDiff(diffResponse) {
+  if (!diffResponse || !Array.isArray(diffResponse.diffs)) {
+    return [];
   }
 
-  // If no matches were found (or too few), fallback to global knn on embeddings
-  if (allMatches.length < 5) {
-    // Use the first query embedding for fallback knn
-    const qv = queryEmbeddings[0];
-    const res = await os.search({
-      index: process.env.INDEX_NAME || "repo-code-embeddings",
-      body: {
-        size: 50,
-        query: {
-          knn: {
-            embedding: {
-              vector: qv,
-              k: 50
+  const result = [];
+
+  for (const file of diffResponse.diffs) {
+    const filepath =
+      file?.destination?.toString || file?.source?.toString || "unknown";
+    const hunksOut = [];
+
+    if (!Array.isArray(file.hunks)) {
+      result.push({ filepath, hunks: [] });
+      continue;
+    }
+
+    for (const hunk of file.hunks) {
+      //
+      // STEP 1 — Collect ADDED and REMOVED lines grouped by destination
+      //
+      const addedByDest = new Map();
+      const removedByDest = new Map();
+
+      for (const seg of hunk.segments || []) {
+        const isAdded = seg.type === "ADDED";
+        const isRemoved = seg.type === "REMOVED";
+
+        if (!isAdded && !isRemoved) continue;
+
+        for (const line of seg.lines || []) {
+          const dest = line.destination;
+          const src = line.source;
+
+          if (isAdded && typeof dest === "number") {
+            addedByDest.set(dest, dest);
+          }
+
+          // REMOVED: grouped by destination if valid, else fallback to source
+          if (isRemoved) {
+            if (typeof dest === "number") {
+              removedByDest.set(dest, dest);
+            } else if (typeof src === "number") {
+              removedByDest.set(src, src);
             }
           }
-        },
-        _source: ["filepath", "filename", "start_line", "end_line", "function_name", "content", "embedding", "importance"]
+        }
       }
-    });
 
-    for (const hit of res.body.hits.hits) {
-      const s = hit._source;
-      const sim = cosine(qv, s.embedding || []);
-      const weighted = sim * (s.importance ?? 1.0);
-      allMatches.push({
-        score: weighted,
-        filepath: s.filepath,
-        function_name: s.function_name,
-        start_line: s.start_line,
-        end_line: s.end_line,
-        content: s.content,
-        importance: s.importance ?? 1.0
+      //
+      // STEP 2 — Apply rule: If ADDED exists for same destination → remove REMOVED
+      //
+      for (const dest of addedByDest.keys()) {
+        if (removedByDest.has(dest)) {
+          removedByDest.delete(dest); // ADDED wins
+        }
+      }
+
+      //
+      // STEP 3 — Collect final changed line numbers
+      //
+      const changedLines = [
+        ...Array.from(addedByDest.values()),
+        ...Array.from(removedByDest.values())
+      ];
+
+      if (changedLines.length === 0) continue;
+
+      changedLines.sort((a, b) => a - b);
+
+      //
+      // STEP 4 — Merge adjacent changed lines into hunks
+      //
+      let start = changedLines[0];
+      let prev = start;
+
+      for (let i = 1; i < changedLines.length; i++) {
+        const cur = changedLines[i];
+        if (cur !== prev + 1) {
+          hunksOut.push({
+            start,
+            end: prev,
+            code: extractChangedCode(hunk, start, prev)
+       });
+          start = cur;
+        }
+        prev = cur;
+      }
+
+      hunksOut.push({
+        start,
+        end: prev,
+        code: extractChangedCode(hunk, start, prev)
+      });
+    }
+
+    result.push({ filepath, hunks: hunksOut });
+  }
+
+  return result;
+}
+
+function extractChangedCode(hunk, start, end) {
+  const lines = [];
+
+  for (const seg of hunk.segments || []) {
+    const isAdded = seg.type === "ADDED";
+    const isRemoved = seg.type === "REMOVED";
+    if (!isAdded && !isRemoved) continue;
+
+    for (const ln of seg.lines || []) {
+      const dest = ln.destination ?? ln.source;
+      if (typeof dest !== "number") continue;
+      if (dest < start || dest > end) continue;
+
+      lines.push({
+        type: isAdded ? "ADDED" : "REMOVED",
+        line: ln.line
       });
     }
   }
 
-  // Sort, dedupe and return top N
-  allMatches.sort((a, b) => b.score - a.score);
+  return lines;
+}
 
-  const seen = new Set();
-  const unique = [];
-  for (const m of allMatches) {
-    const key = `${m.filepath}:${m.start_line}-${m.end_line}`;
-    if (!seen.has(key)) {
-      seen.add(key);
-      unique.push(m);
+
+
+/**
+ * Build a natural-language query for each changed hunk.
+ *
+ * @param {Array} transformed   Output from transformBitbucketDiff()
+ * @param {Object} diffResponse Raw Bitbucket diff response (for code extraction)
+ * @param {Number} contextLines How many context lines to include around change
+ */
+function buildHunkQueries(transformed, diffResponse, contextLines = 5) {
+  const queries = [];
+
+  const getFileDiff = filepath =>
+    diffResponse.diffs.find(d =>
+      (d.destination?.toString || d.source?.toString) === filepath
+    );
+
+  for (const file of transformed) {
+    const filepath = file.filepath;
+    const fileDiff = getFileDiff(filepath);
+    if (!fileDiff) continue;
+
+    for (const h of file.hunks) {
+      const snippet = extractSnippet(fileDiff, h.start, h.end, contextLines);
+      const changes = h.code.map(l => `${l.type === "ADDED" ? "+" : "-"}${l.line}`).join("\n");
+
+      const query = [
+        `File: ${filepath.split("/").pop()}`,
+        `Changed code around line ${h.start}:`,
+        snippet || "<no code extracted>",
+        ``,
+        `Find: methods using these fields, methods calling this code, code with similar patterns.`
+      ].join("\n");
+
+      queries.push({ filepath, start: h.start, end: h.end, changes: changes, query });
     }
-    if (unique.length >= 10) break;
   }
 
-  return unique;
+  return queries;
 }
 
 /**
- * Format context snippets (with line numbers) for LLM
+ * Extracts code around given changed lines from Bitbucket diff hunk structure.
+ *
+ * Includes ADDED / REMOVED / CONTEXT but restricts the window.
  */
-function buildContextText(matches) {
-  return matches.map(m => {
-    const snippet = m.content.split("\n").slice(m.start_line - 1, m.end_line).join("\n");
-    return `File: ${m.filepath}
-Lines: ${m.start_line}-${m.end_line}
-Function: ${m.function_name}
-Importance: ${m.importance}
----
-${snippet}
-`;
-  }).join("\n\n");
+function extractSnippet(fileDiff, startLine, endLine, contextLines) {
+  let lines = [];
+
+  for (const hunk of fileDiff.hunks || []) {
+    for (const seg of hunk.segments || []) {
+      for (const line of seg.lines || []) {
+        // Use destination if available, else source
+        const lineNum =
+          typeof line.destination === "number"
+            ? line.destination
+            : typeof line.source === "number"
+            ? line.source
+            : null;
+
+        if (lineNum == null) continue;
+
+        const minRange = startLine - contextLines;
+        const maxRange = endLine + contextLines;
+
+        if (lineNum >= minRange && lineNum <= maxRange) {
+          const prefix =
+            seg.type === "ADDED"
+              ? "+"
+              : seg.type === "REMOVED"
+              ? "-"
+              : " ";
+
+          lines.push(prefix + line.line);
+        }
+      }
+    }
+  }
+
+  return lines.join("\n");
 }
 
-async function reviewPullRequest({ description, diff, parsedDiff, contextMatches }) {
-  const contextText = buildContextText(contextMatches || []);
-  const prompt = `
-You are a senior code reviewer.
-
-Repository context (relevant snippets):
-${contextText}
-
-Pull request description:
-${description}
-
-Code diff:
-${diff}
-
-Please provide a detailed review with:
-- potential bugs or logic errors
-- code quality or readability issues
-- suggestions for improvement
-`;
-
-  return queryLLM(prompt);
+export async function makeEmbeddingsFromQueries(queries) {
+  return Promise.all(
+    queries.map(q => embedText(q.query).then(embedding => ({
+      ...q,
+      embedding: embedding[0] || []
+    })))
+  );
 }
 
-// endpoint
-app.post("/bitbucket/pr-event", async (req, res) => {
+/**
+ * Search OpenSearch by vector.
+ * Attempts to use 'knn' query if available; otherwise uses script_score fallback (cosine similarity).
+ *
+ * Expects documents structured with a field "embedding" containing numeric arrays.
+ */
+export async function searchOpenSearch(embeddingVector, topK = TOP_K) {
   try {
+    const knnResp = await getOsClient().search({
+      index: INDEX_NAME,
+      body: {
+        size: topK,
+        query: {
+          knn: {
+            embedding: {
+              vector: embeddingVector,
+              k: topK
+            }
+          }
+        }
+      }
+    });
+
+    if (knnResp.body?.hits?.hits?.length) {
+      // Deduplicate by 'checksum' field
+      const rawValues = knnResp.body.hits.hits.map(h => ({ _id: h._id, score: h._score, source: h._source }));
+      return Array.from(new Map(rawValues.map(h => [h.source.checksum, h])).values()).slice(0, 3);
+    }
+  } catch (err) {
+    console.log(`Error while querying Opensearch with knn: ${err.message}`);
+  }
+}
+
+function buildHunkSummaryPrompt(bundle) {
+  const sb = [];
+  sb.push(`Filepath: ${bundle.filepath}`);
+  sb.push(`Changed lines: ${bundle.start}-${bundle.end}`);
+  sb.push(`Changed code: \n${bundle.changes}\n`);
+  sb.push(`Contextual retrievals (top ${bundle.results.length}):`);
+  for (const r of bundle.results) {
+    sb.push(`--- ${r.source.filepath} ${r.source.start_line || ""}-${r.source.end_line || ""}\n${r.source.content}`);
+  }
+  sb.push(`\nTask: Summarize the purpose of the change and list potential problems, edge cases, or missing considerations. Keep it concise (3-6 bullet points).\n\n`);
+  return sb.join("\n");
+}
+
+async function buildFinalReviewPrompt(prMeta, diff) {
+  const transformedDiff = transformBitbucketDiff(diff);
+  const queries = buildHunkQueries(transformedDiff, diff);
+
+  const embeddings = await makeEmbeddingsFromQueries(queries);
+  const hunkSummaries = [];
+  for (const q of embeddings) {
+    const results = (await searchOpenSearch(q.embedding, 5)).map(r => {
+      const {embedding, ...filteredSource} = r.source; 
+      return { id: r._id, score: r.score, source: filteredSource };
+    });
+    const { embedding, ...filteredQ } = q;
+    hunkSummaries.push({
+      filename: filteredQ.filepath,
+      hunk: { start: filteredQ.start, end: filteredQ.end }, 
+      summary: buildHunkSummaryPrompt({ ...filteredQ, results })
+    });
+  }
+  const sb = [];
+  sb.push(`You are a senior reviewer. Produce a concise PR overview.`);
+  sb.push(`Given the PR metadata, hunks, and context, output the following (strict limits):\n`);
+  sb.push(`Purpose (1–2 short sentences)\n`);
+  sb.push(`Key issues (3–5 bullets, each max 1 line)\n`);
+  sb.push(`Verdict: “Approve” or “Request changes” + 1 line reason\n`);
+  sb.push(`Do NOT include long explanations, code blocks, or restatements of code.`);
+  sb.push(`Keep the entire answer under ~700 characters.\n`);
+  sb.push(`You are an expert pull-request reviewer. Review the following pull request composed of several hunks.\n`);
+  sb.push(`PR metadata: ${JSON.stringify(prMeta)}\n`);
+  sb.push(`Hunk summaries and contextual reasons:\n`);
+  for (const hs of hunkSummaries) {
+    sb.push(`Hunk #${hunkSummaries.indexOf(hs) + 1}:`);
+    sb.push(`Filename: ${path.basename(hs.filename)}`);
+    sb.push(`${hs.summary}`);
+  }
+  return sb.join("\n");
+}
+
+/* ---------------------------
+   HTTP handler for Bitbucket PR events
+   --------------------------- */
+
+app.post("/bitbucket/pr-event", async (req, res) => {
+  const PR_EVENTS_SUPPORTED = new Set(["pr:opened", "pr:updated", "pr:reopened"]);
+  try {
+    log.info(`Received PR event: ${JSON.stringify(req.body)}`);
+
     const event = req.body;
-    const pr = event.pullrequest;
+    const eventKey = event.eventKey;
+    if (!PR_EVENTS_SUPPORTED.has(eventKey)) {
+      log.info(`Ignoring unsupported event key "${eventKey}"`);
+      return res.sendStatus(200);
+    }
+
+    const pr = event.pullRequest;
+    if (!pr) {
+      log.warn("No pullRequest object in webhook payload");
+      return res.sendStatus(400);
+    }
+
     const prId = pr.id;
-    const description = pr.description || "";
-    const diffUrl = pr.links.diff.href;
+    // prefer fromRef repository (event uses fromRef / toRef)
+    const sourceRepo = pr.fromRef?.repository;
+    const destRepo = pr.toRef?.repository || pr.destination?.repository;
+    const repoSlug = sourceRepo?.slug || destRepo?.slug;
+    const projectKey = sourceRepo?.project?.key || destRepo?.project?.key;
 
-    // fetch diff
-    const diffRes = await axios.get(diffUrl);
+    if (!repoSlug || !projectKey) {
+      log.error("Cannot determine repoSlug or projectKey from webhook payload", { repoSlug, projectKey });
+      return res.status(400).send({ error: "Missing repository information in webhook payload" });
+    }
+
+    // Build canonical endpoints using BITBUCKET_BASE
+    const prDetailsUrl = `${BITBUCKET_BASE}/projects/${encodeURIComponent(projectKey)}/repos/${encodeURIComponent(repoSlug)}/pull-requests/${prId}`;
+    const diffUrl = `${prDetailsUrl}/diff`;
+    // optionally: activities and changes endpoints:
+    const activitiesUrl = `${prDetailsUrl}/activities`;
+    const changesUrl = `${prDetailsUrl}/changes`;
+
+    // Headers for Bitbucket Server PAT or token
+    const headers = { Authorization: `Bearer ${BITBUCKET_TOKEN}` };
+
+    log.info(`Fetching PR details from: ${prDetailsUrl}`);
+    const prDetailsRes = await axios.get(prDetailsUrl, { headers });
+    const prDetails = prDetailsRes.data;
+
+    // optionally log reviewers / participants
+    log.info(`PR #${prId} details: title="${prDetails.title}", state=${prDetails.state}, reviewers=${(prDetails.reviewers || []).map(r=>r.user?.name).join(",")}`);
+
+    // fetch raw diff
+    log.info(`Fetching PR diff from: ${diffUrl}`);
+    const diffRes = await axios.get(diffUrl, { headers });
     const diff = diffRes.data;
+    log.info(`PR diff received: ${JSON.stringify(diff)}`);
 
-    // parse diff into hunks
-    const parsed = parseDiff(diff).map(f => ({
-      filepath: f.to || f.from,
-      hunks: (f.chunks || []).map(h => ({
-        newStart: h.newStart,
-        newEnd: h.newStart + (h.newLines || 0) - 1
-      }))
-    }));
 
-    // create combined query: description + diff
-    const queryText = description + "\n" + diff;
-
-    // search with semantic diff chunking prioritized
-    const contextMatches = await searchContext(queryText, parsed);
-
-    // ask LLM
-    const review = await reviewPullRequest({ description, diff, parsedDiff: parsed, contextMatches });
-
-    // post back to Bitbucket
-    await axios.post(
-      `https://api.bitbucket.org/2.0/repositories/${pr.destination.repository.full_name}/pullrequests/${prId}/comments`,
-      { content: { raw: review } },
-      { headers: { Authorization: `Bearer ${process.env.BITBUCKET_TOKEN}` } }
+    const finalReviewPrompt = await buildFinalReviewPrompt(
+      {
+        project: projectKey,
+        repo: repoSlug,
+        pr: prId,
+        from: diff.fromHash,
+        to: diff.toHash
+      }, 
+      diff
     );
+    log.info(`Final review prompt built. Length: ${finalReviewPrompt.length} characters. Content: ${finalReviewPrompt}`);
 
+    // Query LLM for review
+    log.info(`Querying LLM for PR review...`);
+    const review = await queryLLM(finalReviewPrompt);
+    log.info(`LLM review received. Length: ${review.length} characters. Content: ${review}`);
+
+    // post a comment back to PR (simple top-level comment)
+    const postCommentUrl = `${prDetailsUrl}/comments`;
+    log.info(`Posting comment back to PR #${prId} to: ${postCommentUrl}`);
+    await axios.post(postCommentUrl, { text: review }, { headers });
+
+    log.info(`Posted review comment for PR #${prId}`);
     res.sendStatus(200);
   } catch (err) {
     log.error("PR handler error", err);
@@ -277,4 +414,4 @@ app.post("/bitbucket/pr-event", async (req, res) => {
   }
 });
 
-app.listen(3001, () => log.info("PR Review Bot listening on :3001"));
+app.listen(PORT, () => log.info(`PR Review Bot listening on :${PORT}`));

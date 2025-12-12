@@ -10,11 +10,15 @@
     "properties": {
       "filepath": { "type": "keyword" },
       "filename": { "type": "keyword" },
-      "content": { "type": "text" },
+      "language": { "type": "keyword" },
+      "function_name": { "type": "keyword" },
       "start_line": { "type": "integer" },
       "end_line": { "type": "integer" },
-      "function_name": { "type": "keyword" },
+      "is_test": { "type": "boolean" },
+      "checksum": { "type": "text" },
       "importance": { "type": "float" },
+      "coverage_percent": { "type": "integer" },
+      "content": { "type": "text" },
       "embedding": {
           "type": "knn_vector",
           "dimension": 384,

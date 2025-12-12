@@ -5,6 +5,8 @@ export const INDEX_NAME = process.env.EMB_INDEX_NAME || "repo-code-embeddings-ch
 export const PATH_TO_REPO = process.env.EMB_PATH_TO_REPO || "../OpenSearch/";
 export const EMB_ENDPOINT = process.env.EMB_ENDPOINT || "http://localhost:3000/api/embedding";
 export const OS_ENDPOINT = process.env.EMB_OS_ENDPOINT ||"http://localhost:9200";
+export const LLM_REVIEW_MODEL = process.env.LLM_REVIEW_MODEL || "qwen3-coder-30b-a3b-instruct-ud";
+export const LLM_REVIEW_ENDPOINT = process.env.LLM_ENDPOINT || "http://localhost:1234/v1/responses";
 
 export const EMB_SIZE = 384; // Embedding size
 
@@ -51,10 +53,15 @@ export async function searchContext(queryText) {
   return res.body.hits.hits.map(hit => hit._source);
 }
 
-export function queryLLM(prompt) {
-  const payload = [{ role: "user", content: prompt }];
-  // Should be implemented reall call to LLM
-  return "This is test response emulating PR review results provided by LLM";
+export async function queryLLM(prompt) {
+    const payload = {
+      "model": LLM_REVIEW_MODEL,
+      "input": prompt,
+      "stream": false
+    };
+    const headers = { "Content-Type": "application/json" };
+    const LlmRawResult = await axios.get(LLM_REVIEW_ENDPOINT, { headers });
+    return LlmRawResult.data.output?.content?.text || "NO RESPONSE FROM LLM";
 }
 
 export async function reviewPullRequest({ description, diff, context }) {
@@ -76,8 +83,16 @@ Please provide a detailed review with:
 - suggestions for improvement
   `;
 
-  const res = queryLLM(prompt);
-  return res;
+  const payload = {
+      "model": "gpt-oss:120b",
+      "messages": [
+        {
+          "role": "user",
+          "content": prompt
+        }
+      ]
+    };
+  return payload;
 }
 
 export function getOsClient() {

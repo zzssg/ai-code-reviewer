@@ -111,6 +111,17 @@ Generates embeddings for the provided text.
 }
 ```
 
+**Embedding query example**
+```bash
+curl -X POST -H "Content-Type: application/json" "http://localhost:3000/api/embedding" -d @emb-request.json
+```
+
+**Embedding response example**
+```json
+{"chunks":1,"embeddings":[[-0.028038970893248916,-0.06390024535357952,-0.293946415069513,...,-0.2707489957101643]]}
+```
+Given that all-MiniLM-L6-v2 is used for embeddings generation - it provides 384-dimentional vectors as embeddings
+
 ## Integrations
 
 ### Embeddings Storage
