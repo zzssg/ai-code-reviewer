@@ -16,16 +16,18 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 
 # Copy application source
-COPY embedding-server-cluster-chunks.js ./
+COPY pr-reviewer-chunks.js ./
+COPY logger.js ./
 COPY utils.js ./
-COPY models ./models
 
 # Environment variables
-ENV PORT=3000
-ENV EMB_WORKERS=2
-ENV EMB_MODEL_PATH="./models/all-MiniLM-L6-v2.onnx"
+ENV PORT=3001
+ENV BITBUCKET_TOKEN="BBDC-OTUxMzU5MjY1NzUyOj1qi1obF371UO/QcTrr/yhBbsJu"
+ENV BITBUCKET_URL_PREFIX="http://bitbucket:7990/rest/api/1.0/projects/" 
+ENV LLM_REVIEW_ENDPOINT="http://llm-server:1234/v1/responses"
+# "https://api.bitbucket.org/2.0/repositories/"
 
-EXPOSE 3000
+EXPOSE 3001
 
 # Start the clustered server
-CMD ["node", "embedding-server-cluster-chunks.js"]
+CMD ["node", "pr-reviewer-chunks.js"]

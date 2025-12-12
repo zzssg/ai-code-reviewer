@@ -1,0 +1,32 @@
+# Use Alpine only if onnxruntime-node supports it.
+# Safer choice: Debian-based image.
+FROM node:20-bullseye-slim
+
+# Install system dependencies required by onnxruntime-node
+RUN apt-get update && apt-get install -y \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy only package files first (better layer caching)
+COPY package*.json ./
+
+# Install production dependencies
+RUN npm ci --omit=dev
+
+# Copy application source
+COPY embedding-server-cluster-chunks.js ./
+COPY logger.js ./
+COPY utils.js ./
+COPY models ./models
+
+# Environment variables
+ENV PORT=3000
+ENV EMB_WORKERS=2
+ENV EMB_MODEL_PATH="./models/all-MiniLM-L6-v2.onnx"
+
+EXPOSE 3000
+
+# Start the clustered server
+CMD ["node", "embedding-server-cluster-chunks.js"]
