@@ -1,27 +1,44 @@
 services:
   embedding-server:
-    image: embedding-server
     container_name: embedding-server
+    build:
+      context: .
+      dockerfile: Dockerfile.embedding-server
     ports:
       - "3000:3000"
     environment:
-      PORT: 3000
       EMB_WORKERS: 2
-      EMB_OS_ENDPOINT: "http://opensearch-node1:9200"
+      EMB_MODEL_PATH: "./models/all-MiniLM-L6-v2.onnx"
+      EMB_OS_ENDPOINT: "http://opensearch-n1:9200"
       EMB_ENDPOINT: "http://embedding-server:3000/api/embedding"
       EMB_INDEX_NAME: "repo-code-embeddings-chunks"
     networks:
-      - code-reviewer-network
+      - code-reviewer-network-ext
     depends_on:
-      - opensearch-node1
-  opensearch-node1:
+      - opensearch-n1
+  pr-reviewer:
+    container_name: pr-reviewer
+    build:
+      context: .
+      dockerfile: Dockerfile.pr-reviewer
+    ports:
+      - "3001:3001"
+    environment:
+      EMB_ENDPOINT: "http://embedding-server:3000/api/embedding"
+      EMB_OS_ENDPOINT: "http://opensearch-n1:9200"
+      INDEX_NAME: "repo-code-embeddings-chunks"
+      LLM_REVIEW_ENDPOINT: "http://host.docker.internal:1234/v1/responses"
+    networks:
+      - code-reviewer-network-ext
+    depends_on:
+      - opensearch-n1
+  opensearch-n1:
     image: opensearchproject/opensearch:latest
-    container_name: opensearch-node1
+    container_name: opensearch-n1
     environment:
       - discovery.type=single-node
       - bootstrap.memory_lock=true
       - "OPENSEARCH_JAVA_OPTS=-Xms2g -Xmx2g"
-      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=k3JWNEQr_
       - plugins.security.disabled=true
     ulimits:
       memlock:
@@ -33,7 +50,7 @@ services:
       - "9200:9200"
       - "9600:9600"
     networks:
-      - code-reviewer-network
+      - code-reviewer-network-ext
     command: >
       bash -c "
         ./bin/opensearch-plugin list | grep -q 'opensearch-knn' ||
@@ -45,7 +62,7 @@ services:
     image: opensearchproject/opensearch-dashboards:latest
     container_name: opensearch-dashboards
     environment:
-      - OPENSEARCH_HOSTS=["http://opensearch-node1:9200"]
+      - OPENSEARCH_HOSTS=["http://opensearch-n1:9200"]
       - DISABLE_SECURITY_DASHBOARDS_PLUGIN=true
       - OPENSEARCH_SSL_VERIFICATIONMODE=none
       - OPENSEARCH_USERNAME=kibanaserver # Or your configured user
@@ -55,9 +72,9 @@ services:
     ports:
       - "5601:5601"
     networks:
-      - code-reviewer-network
+      - code-reviewer-network-ext
     depends_on:
-      - opensearch-node1
+      - opensearch-n1
   postgres:
     image: postgres:14
     container_name: bitbucket-postgres
@@ -71,7 +88,7 @@ services:
     ports:
       - "5432:5432"
     networks:
-      - code-reviewer-network
+      - code-reviewer-network-ext
 
   bitbucket:
     image: atlassian/bitbucket:9.1
@@ -83,7 +100,7 @@ services:
       - "7990:7990"     # HTTP
       - "7999:7999"     # SSH for git@...
     networks:
-      - code-reviewer-network
+      - code-reviewer-network-ext
     environment:
       JVM_MINIMUM_MEMORY: "2g"
       JVM_MAXIMUM_MEMORY: "4g"
@@ -101,5 +118,6 @@ volumes:
   bitbucket_home:
   
 networks:
-  code-reviewer-network:
+  code-reviewer-network-ext:
+    external: true
     driver: bridge
