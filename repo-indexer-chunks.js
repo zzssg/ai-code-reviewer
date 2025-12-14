@@ -241,6 +241,7 @@ async function indexRepo(baseDir) {
       index: INDEX_NAME,
       id: relPath,
       body: {
+        doc_type: "file",
         filename: path.basename(f),
         filepath: relPath,
         language,
@@ -266,6 +267,7 @@ async function indexRepo(baseDir) {
           index: INDEX_NAME,
           id: chunkId,
           body: {
+            doc_type: "chunk",
             filename: path.basename(f),
             filepath: relPath,
             language,
@@ -286,6 +288,7 @@ async function indexRepo(baseDir) {
             index: INDEX_NAME,
             id: subId,
             body: {
+              doc_type: "chunk",
               filename: path.basename(f),
               filepath: relPath,
               language,
