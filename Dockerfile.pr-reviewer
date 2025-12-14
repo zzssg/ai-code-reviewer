@@ -24,7 +24,7 @@ COPY utils.js ./
 ENV PORT=3001
 ENV BITBUCKET_TOKEN="BBDC-OTUxMzU5MjY1NzUyOj1qi1obF371UO/QcTrr/yhBbsJu"
 ENV BITBUCKET_URL_PREFIX="http://bitbucket:7990/rest/api/1.0/projects/" 
-ENV LLM_REVIEW_ENDPOINT="http://llm-server:1234/v1/responses"
+ENV LLM_ENDPOINT="http://llm-server:1234/v1/responses"
 # "https://api.bitbucket.org/2.0/repositories/"
 
 EXPOSE 3001

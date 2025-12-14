@@ -6,8 +6,9 @@ export const INDEX_NAME = process.env.EMB_INDEX_NAME || "repo-code-embeddings-ch
 export const PATH_TO_REPO = process.env.EMB_PATH_TO_REPO || "../OpenSearch/";
 export const EMB_ENDPOINT = process.env.EMB_ENDPOINT || "http://localhost:3000/api/embedding";
 export const OS_ENDPOINT = process.env.EMB_OS_ENDPOINT ||"http://localhost:9200";
-export const LLM_REVIEW_MODEL = process.env.LLM_REVIEW_MODEL || "qwen3-coder-30b-a3b-instruct-ud";
-export const LLM_REVIEW_ENDPOINT = process.env.LLM_REVIEW_ENDPOINT || "http://localhost:1234/v1/responses";
+export const LLM_REVIEW_MODEL = process.env.LLM_REVIEW_MODEL || "qwen3-coder-30b-a3b-instruct-ud"; //"devstral-small-2-24b-instruct-2512"; // "qwen3-coder-30b-a3b-instruct-ud";
+export const LLM_ENDPOINT = process.env.LLM_ENDPOINT || "http://localhost:1234/v1/responses";
+export const LLM_API_KEY = process.env.LLM_API_KEY || "";
 
 export const EMB_SIZE = 384; // Embedding size
 
@@ -32,6 +33,16 @@ export async function embedText(text) {
   }
 
   return data.embeddings;
+}
+
+export function prepareOpensearchIndexName() {
+  const normalized = path.normalize(PATH_TO_REPO).replace(/[\\/]+$/, "");
+  const index_suffix = path.basename(normalized).toLowerCase();
+  let result = INDEX_NAME;
+  if (index_suffix && index_suffix.length > 0) {
+    result = INDEX_NAME + "-" + index_suffix;
+  }
+  return result;
 }
 
 export async function searchContext(queryText) {
@@ -62,7 +73,10 @@ export async function queryLLM(prompt) {
       "stream": false
     };
     const headers = { "Content-Type": "application/json" };
-    const LlmRawResult = await axios.post(LLM_REVIEW_ENDPOINT, payload, { headers });
+    if (LLM_API_KEY != "") {
+      headers["Authorization"] = `Bearer ${LLM_API_KEY}`;
+    }
+    const LlmRawResult = await axios.post(LLM_ENDPOINT, payload, { headers });
     return LlmRawResult.data.output[0]?.content[0]?.text || "NO RESPONSE FROM LLM";
   } catch (err) {
     console.error("LLM query failed: ", err);

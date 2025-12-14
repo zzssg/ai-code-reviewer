@@ -8,6 +8,7 @@
     },
     "mappings": {
     "properties": {
+      "doc_type": { "type": "keyword" },
       "filepath": { "type": "keyword" },
       "filename": { "type": "keyword" },
       "language": { "type": "keyword" },

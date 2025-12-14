@@ -245,7 +245,6 @@ export async function makeEmbeddingsFromQueries(queries) {
 
 /**
  * Search OpenSearch by vector.
- * Attempts to use 'knn' query if available; otherwise uses script_score fallback (cosine similarity).
  *
  * Expects documents structured with a field "embedding" containing numeric arrays.
  */
