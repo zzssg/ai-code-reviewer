@@ -46,6 +46,7 @@ async function run() {
   let hits = first.body.hits.hits;
 
   let processed = 0;
+  let isTestCount = 0;
 
   while (hits.length > 0) {
     for (const hit of hits) {
@@ -53,6 +54,9 @@ async function run() {
       const source = hit._source;
 
       const newIsTest = isTestFile(source);
+      if (newIsTest) {
+        isTestCount++;
+      }
 
       // Update document with "is_test" flag
       await client.update({
@@ -78,7 +82,7 @@ async function run() {
     hits = next.body.hits.hits;
   }
 
-  log.info(`Done. Updated ${processed} documents. Time spent: ${Date.now() - startTS} ms`);
+  log.info(`Done. Documents updated: ${processed}. Tests found: ${isTestCount}. Time spent: ${(Date.now() - startTS)/1000} sec`);
 }
 
 run().catch(err => {

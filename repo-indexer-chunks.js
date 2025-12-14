@@ -1,13 +1,12 @@
 import fs from "fs";
 import path from "path";
-import { fileURLToPath } from "url";
 import {
   embedText,
   getOsClient,
   fileChecksum,
   runLimited,
   percentile,
-  INDEX_NAME,
+  prepareOpensearchIndexName,
   PATH_TO_REPO
 } from "./utils.js";
 
@@ -18,6 +17,31 @@ import { parse as parseJava } from "java-parser";
 
 // Flag to skip cleanup of obsolete files and chunks
 const SKIP_CLEANUP = process.env.SKIP_CLEANUP === "true";
+// Opensearch index name should end up with repo folder name
+const REPO_INDEXER_INDEX_NAME = process.env.REPO_INDEXER_INDEX_NAME || prepareOpensearchIndexName();
+
+// -----------------------------
+// ENSURE INDEX EXISTS
+// -----------------------------
+async function ensureIndex(indexName, indexSettingsPath) {
+  const { body: exists } = await getOsClient().indices.exists({
+    index: indexName,
+  });
+
+  if (!exists) {
+    const indexBody = JSON.parse(
+      fs.readFileSync(indexSettingsPath, "utf-8")
+    );
+    await getOsClient().indices.create({
+      index: indexName,
+      body: indexBody,
+    });
+
+    log.info(`Index '${indexName}' created`);
+  } else {
+    log.info(`Index '${indexName}' already exists`);
+  }
+}
 
 // -----------------------------
 // BLACKLIST FILENAMES
@@ -180,6 +204,26 @@ function chunkByFunctions(content, language) {
 }
 
 // -----------------------------
+// TEST FILE DETECTION
+// -----------------------------
+function isTestFile(doc) {
+  const filename = doc.filename || "";
+  const filepath = doc.filepath || "";
+
+  const lowerPath = filepath.toLowerCase();
+
+  if (lowerPath.includes("/test/") || lowerPath.includes("\\test\\")) {
+    return true;
+  }
+
+  if (filename.endsWith("Test.java") || filename.endsWith("Tests.java")) {
+    return true;
+  }
+
+  return false;
+}
+
+// -----------------------------
 // FILE IMPORTANCE
 // -----------------------------
 function computeImportance(filepath, content) {
@@ -197,7 +241,7 @@ function computeImportance(filepath, content) {
 // -----------------------------
 async function getStoredFileChecksum(docId) {
   try {
-    const res = await getOsClient().get({ index: INDEX_NAME, id: docId });
+    const res = await getOsClient().get({ index: REPO_INDEXER_INDEX_NAME, id: docId });
     return res.body?._source?.checksum ?? null;
   } catch {
     return null;
@@ -212,6 +256,7 @@ async function cleanupObsoleteFiles(existingFilepaths) {
   const existingSet = new Set(existingFilepaths);
 
   log.info("Starting obsolete file cleanup...");
+  const startTS = Date.now();
 
   let deletedFiles = 0;
   let deletedChunks = 0;
@@ -219,7 +264,7 @@ async function cleanupObsoleteFiles(existingFilepaths) {
 
   while (true) {
     const res = await os.search({
-      index: INDEX_NAME,
+      index: REPO_INDEXER_INDEX_NAME,
       size: 500,
       body: {
         sort: [{ filepath: "asc" }],
@@ -239,14 +284,14 @@ async function cleanupObsoleteFiles(existingFilepaths) {
       if (!existingSet.has(filepath)) {
         // delete parent file doc
         await os.delete({
-          index: INDEX_NAME,
+          index: REPO_INDEXER_INDEX_NAME,
           id: hit._id
         }).catch(() => {});
         deletedFiles++;
 
         // delete all chunks for this file
         const delRes = await os.deleteByQuery({
-          index: INDEX_NAME,
+          index: REPO_INDEXER_INDEX_NAME,
           refresh: true,
           body: {
             query: {
@@ -269,7 +314,7 @@ async function cleanupObsoleteFiles(existingFilepaths) {
   }
 
   log.info(
-    `Cleanup finished. Removed ${deletedFiles} files and ${deletedChunks} chunks.`
+    `Cleanup finished in ${Date.now() - startTS} ms. Removed files / chunks: ${deletedFiles} / ${deletedChunks}`
   );
 }
 
@@ -282,7 +327,9 @@ async function indexRepo(baseDir) {
   let embedLatencies = [];
   let skippedDuplicates = 0;
 
-  log.info(`Starting indexing of repo at ${baseDir} ...`);
+  log.info("Ensuring OpenSearch index exists...");
+  await ensureIndex(REPO_INDEXER_INDEX_NAME, "./create-opensearch-index-chunks.json");
+  log.info(`Starting indexing of repo at ${baseDir}, using Opensearch index ${REPO_INDEXER_INDEX_NAME}...`);
   const files = await getFiles(baseDir);
   log.info(`Found ${files.length} files to process.`);
   
@@ -308,14 +355,16 @@ async function indexRepo(baseDir) {
     if (language === ".java") chunks = chunkJavaByMethods(content);
     else chunks = chunkByFunctions(content, language);
 
+    const isTestFlag = isTestFile({ filename: path.basename(f), filepath: relPath });
     const importance = computeImportance(relPath, content);
 
     // Store parent file doc
     await getOsClient().index({
-      index: INDEX_NAME,
+      index: REPO_INDEXER_INDEX_NAME,
       id: relPath,
       body: {
         doc_type: "file",
+        is_test: isTestFlag,
         filename: path.basename(f),
         filepath: relPath,
         language,
@@ -338,10 +387,11 @@ async function indexRepo(baseDir) {
 
       if (embeddings.length <= 1) {
         await getOsClient().index({
-          index: INDEX_NAME,
+          index: REPO_INDEXER_INDEX_NAME,
           id: chunkId,
           body: {
             doc_type: "chunk",
+            is_test: isTestFlag,
             filename: path.basename(f),
             filepath: relPath,
             language,
@@ -359,10 +409,11 @@ async function indexRepo(baseDir) {
         for (let i = 0; i < embeddings.length; i++) {
           const subId = `${chunkId}::sub_${i}`;
           await getOsClient().index({
-            index: INDEX_NAME,
+            index: REPO_INDEXER_INDEX_NAME,
             id: subId,
             body: {
               doc_type: "chunk",
+              is_test: isTestFlag,
               filename: path.basename(f),
               filepath: relPath,
               language,

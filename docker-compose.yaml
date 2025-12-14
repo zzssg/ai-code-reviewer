@@ -26,8 +26,8 @@ services:
     environment:
       EMB_ENDPOINT: "http://embedding-server:3000/api/embedding"
       EMB_OS_ENDPOINT: "http://opensearch-n1:9200"
-      INDEX_NAME: "repo-code-embeddings-chunks"
-      LLM_REVIEW_ENDPOINT: "http://host.docker.internal:1234/v1/responses"
+      EMB_INDEX_NAME: "repo-code-embeddings-chunks"
+      LLM_ENDPOINT: "http://host.docker.internal:1234/v1/responses"
     networks:
       - code-reviewer-network-ext
     depends_on:

@@ -63,6 +63,7 @@ async function fetchAllDocs() {
 }
 
 async function generateCoverageReport() {
+  log.info(`Start generating coverage report for index '${INDEX_NAME}'...`);
   const allDocs = await fetchAllDocs();
 
   const sourceDocs = allDocs.filter(d => !d.is_test);
@@ -109,7 +110,7 @@ async function generateCoverageReport() {
   coverageMap.sort((a, b) => b.similarity - a.similarity);
 
   const avgCoverage = coverageMap.reduce((acc, c) => acc + c.similarity, 0) / coverageMap.length;
-  log.info(`Average test coverage: ${(avgCoverage * 100).toFixed(2)}%`);
+  log.info(`Average test coverage over ${INDEX_NAME}: ${(avgCoverage * 100).toFixed(2)}%`);
 
   // top 10 most covered chunks
   const top10 = coverageMap.slice(0, 10);
@@ -120,5 +121,5 @@ async function generateCoverageReport() {
 }
 
 generateCoverageReport().catch(err => {
-  log.error("Error generating test coverage report:", err);
+  log.error("Error generating test coverage report for index: " + INDEX_NAME, err);
 });
