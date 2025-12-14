@@ -16,7 +16,8 @@ const log = createLogger(import.meta.url);
 
 import { parse as parseJava } from "java-parser";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// Flag to skip cleanup of obsolete files and chunks
+const SKIP_CLEANUP = process.env.SKIP_CLEANUP === "true";
 
 // -----------------------------
 // BLACKLIST FILENAMES
@@ -204,6 +205,75 @@ async function getStoredFileChecksum(docId) {
 }
 
 // -----------------------------
+// OBSOLETE FILE + CHUNK CLEANUP
+// -----------------------------
+async function cleanupObsoleteFiles(existingFilepaths) {
+  const os = getOsClient();
+  const existingSet = new Set(existingFilepaths);
+
+  log.info("Starting obsolete file cleanup...");
+
+  let deletedFiles = 0;
+  let deletedChunks = 0;
+  let searchAfter = null;
+
+  while (true) {
+    const res = await os.search({
+      index: INDEX_NAME,
+      size: 500,
+      body: {
+        sort: [{ filepath: "asc" }],
+        ...(searchAfter ? { search_after: searchAfter } : {}),
+        query: {
+          term: { doc_type: "file" }
+        }
+      }
+    });
+
+    const hits = res.body.hits.hits;
+    if (hits.length === 0) break;
+
+    for (const hit of hits) {
+      const filepath = hit._source.filepath;
+
+      if (!existingSet.has(filepath)) {
+        // delete parent file doc
+        await os.delete({
+          index: INDEX_NAME,
+          id: hit._id
+        }).catch(() => {});
+        deletedFiles++;
+
+        // delete all chunks for this file
+        const delRes = await os.deleteByQuery({
+          index: INDEX_NAME,
+          refresh: true,
+          body: {
+            query: {
+              bool: {
+                must: [
+                  { term: { doc_type: "chunk" } },
+                  { term: { filepath } }
+                ]
+              }
+            }
+          }
+        });
+
+        deletedChunks += delRes.body.deleted || 0;
+        log.info(`Deleted obsolete file + chunks: ${filepath}`);
+      }
+    }
+
+    searchAfter = hits[hits.length - 1].sort;
+  }
+
+  log.info(
+    `Cleanup finished. Removed ${deletedFiles} files and ${deletedChunks} chunks.`
+  );
+}
+
+// -----------------------------
 // MAIN INDEXING
 // -----------------------------
 async function indexRepo(baseDir) {
@@ -215,6 +285,10 @@ async function indexRepo(baseDir) {
   log.info(`Starting indexing of repo at ${baseDir} ...`);
   const files = await getFiles(baseDir);
   log.info(`Found ${files.length} files to process.`);
+  
+  const relativeFiles = files.map(f =>
+    path.relative(baseDir, f).replace(/\\/g, "/")
+  ); 
 
   const tasks = files.map(f => async () => {
     const relPath = path.relative(baseDir, f).replace(/\\/g, "/");
@@ -329,6 +403,13 @@ async function indexRepo(baseDir) {
     `\nTotal indexing time:      ${duration > 1000 ? (duration/1000 + ' sec') : (duration + ' ms')}` +
     `\n==========================`
   );
+
+  if (SKIP_CLEANUP) {
+    log.info(`Skipping obsolete file cleanup as per configuration: SKIP_CLEANUP is ${SKIP_CLEANUP}`);
+    return;
+  } else {
+    await cleanupObsoleteFiles(relativeFiles);
+  }
 }
 
 // run
