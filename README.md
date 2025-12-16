@@ -38,16 +38,11 @@ Process:
 2. Extracts code changes and pull request description
 3. Finds semantically similar code chunks from the indexed repository
 4. Constructs context-aware prompts for the LLM
-5. Posts AI-generated review comments back to the pull request
+5. Posts AI-generated review comments back to the pull request as comment
 
 This approach significantly improves review quality by providing the LLM with relevant context from the existing codebase.
 
 ## Auxiliary Features
-
-### Test Code Identification
-**File:** `mark-tests.js`
-
-Automatically identifies and marks test code in the OpenSearch index with an `is_test` flag. Uses filepath patterns and naming conventions to distinguish test files from production code.
 
 ### Semantic Test Coverage Analysis
 **File:** `test-coverage-report.js`
@@ -82,20 +77,6 @@ EMB_PATH_TO_REPO=/path/to/your/repository node repo-indexer-chunks.js
 ```bash
 # Start the PR reviewer service
 node pr-reviewer-chunks.js
-```
-
-### Marking Test Files
-
-```bash
-# Mark files as test code in the index
-node mark-tests.js
-```
-
-### Generating Test Coverage Report
-
-```bash
-# Generate semantic test coverage report
-node test-coverage-report.js
 ```
 
 ## API
