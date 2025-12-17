@@ -2,6 +2,8 @@ import axios from "axios";
 import crypto from "crypto";
 import path from "path";
 import fs from "fs";
+import pino from "pino";
+import { fileURLToPath } from "url";
 import { Client } from "@opensearch-project/opensearch";
 
 export const INDEX_NAME = process.env.EMB_INDEX_NAME || "repo-code-embeddings-chunks";
@@ -15,6 +17,39 @@ export const LLM_API_KEY = process.env.LLM_API_KEY || "";
 export const EMB_SIZE = 384; // Embedding size
 
 let osClient = undefined;
+
+export function createLogger(importMetaUrl) {
+  const isDev = process.env.NODE_ENV !== "production";
+  const filename = path.basename(fileURLToPath(importMetaUrl));
+
+  const logger = pino({
+    level: "info",
+    timestamp: pino.stdTimeFunctions.isoTime,
+    formatters: {
+      level(label) {
+        return { level: label.toUpperCase() };
+      },
+      bindings() {
+        return {};
+      },
+      log(obj) {
+        return obj;
+      }
+    },
+  }, isDev
+    ? pino.transport({
+        target: "pino-pretty",
+        options: {
+          colorize: false,
+          translateTime: false,
+          messageFormat: `${filename} - {msg}`,
+        },
+      })
+    : undefined
+  );
+
+  return logger;
+}
 
 export async function embedText(text) {
   const response = await fetch(EMB_ENDPOINT, {

@@ -1,9 +1,8 @@
 import express from "express";
 import axios from "axios";
 import path from "path";
-import { getOsClient, embedText, queryLLM, INDEX_NAME } from "./utils.js";
+import { createLogger, getOsClient, embedText, queryLLM, INDEX_NAME } from "./utils.js";
 
-import createLogger from "./logger.js";
 const log = createLogger(import.meta.url);
 
 const PORT = process.env.PORT || 3001;

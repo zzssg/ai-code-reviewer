@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import {
+  createLogger,
   embedText,
   getOsClient,
   fileChecksum,
@@ -11,7 +12,6 @@ import {
   PATH_TO_REPO
 } from "./utils.js";
 
-import createLogger from "./logger.js";
 const log = createLogger(import.meta.url);
 
 import { parse as parseJava } from "java-parser";

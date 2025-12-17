@@ -2,9 +2,9 @@
   "name": "embedding-server",
   "version": "1.0.0",
   "type": "module",
-  "main": "embedding-server-cluster-chunks.js",
+  "main": "embedding-server.js",
   "scripts": {
-    "start": "node embedding-server-cluster-chunks.js"
+    "start": "node embedding-servers.js"
   },
   "author": "Sergei Ikonnikov <s.v.ikonnikov@gmail.com>",
   "license": "ISC",

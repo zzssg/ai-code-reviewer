@@ -3,12 +3,12 @@
  */
 
 import {
+  createLogger,
   getOsClient,
   INDEX_NAME,
   EMB_SIZE
 } from "./utils.js";
 
-import createLogger from "./logger.js";
 const log = createLogger(import.meta.url);
 
 const client = getOsClient();

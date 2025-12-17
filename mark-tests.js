@@ -4,11 +4,11 @@
  * */ 
 
 import {
+  createLogger,
   getOsClient,
   INDEX_NAME
 } from "./utils.js";
 
-import createLogger from "./logger.js";
 const log = createLogger(import.meta.url);
 
 function isTestFile(doc) {
