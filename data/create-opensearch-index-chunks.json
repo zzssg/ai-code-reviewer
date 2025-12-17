@@ -12,6 +12,7 @@
       "filepath": { "type": "keyword" },
       "filename": { "type": "keyword" },
       "language": { "type": "keyword" },
+      "package": { "type": "keyword" },
       "function_name": { "type": "keyword" },
       "start_line": { "type": "integer" },
       "end_line": { "type": "integer" },

@@ -7,6 +7,7 @@ import {
   runLimited,
   percentile,
   prepareOpensearchIndexName,
+  ensureIndex,
   PATH_TO_REPO
 } from "./utils.js";
 
@@ -19,29 +20,6 @@ import { parse as parseJava } from "java-parser";
 const SKIP_CLEANUP = process.env.SKIP_CLEANUP === "true";
 // Opensearch index name should end up with repo folder name
 const REPO_INDEXER_INDEX_NAME = process.env.REPO_INDEXER_INDEX_NAME || prepareOpensearchIndexName();
-
-// -----------------------------
-// ENSURE INDEX EXISTS
-// -----------------------------
-async function ensureIndex(indexName, indexSettingsPath) {
-  const { body: exists } = await getOsClient().indices.exists({
-    index: indexName,
-  });
-
-  if (!exists) {
-    const indexBody = JSON.parse(
-      fs.readFileSync(indexSettingsPath, "utf-8")
-    );
-    await getOsClient().indices.create({
-      index: indexName,
-      body: indexBody,
-    });
-
-    log.info(`Index '${indexName}' created`);
-  } else {
-    log.info(`Index '${indexName}' already exists`);
-  }
-}
 
 // -----------------------------
 // BLACKLIST FILENAMES
@@ -223,6 +201,34 @@ function isTestFile(doc) {
   return false;
 }
 
+function getJavaPackage(content) {
+  const match = content.match(/^\s*package\s+([\w.]+)\s*;/m);
+    
+    if (match && match[1]) {
+        return match[1];
+    } else {
+        return "default"; // no package declaration found
+    }
+}
+
+function getJavaImports(content) {
+  const withoutComments = content
+    .replace(/\/\*[\s\S]*?\*\//g, "") // block comments
+    .replace(/\/\/.*$/gm, "");        // line comments
+
+  const importRegex = /^\s*import\s+(static\s+)?([\w.*]+)\s*;/gm;
+
+  const imports = [];
+  let match;
+
+  while ((match = importRegex.exec(withoutComments)) !== null) {
+    imports.push(
+      (match[1] ? "static " : "") + match[2]
+    );
+  }
+  return imports;
+}
+
 // -----------------------------
 // FILE IMPORTANCE
 // -----------------------------
@@ -328,7 +334,7 @@ async function indexRepo(baseDir) {
   let skippedDuplicates = 0;
 
   log.info("Ensuring OpenSearch index exists...");
-  await ensureIndex(REPO_INDEXER_INDEX_NAME, "./create-opensearch-index-chunks.json");
+  await ensureIndex(REPO_INDEXER_INDEX_NAME, "./data/create-opensearch-index-chunks.json");
   log.info(`Starting indexing of repo at ${baseDir}, using Opensearch index ${REPO_INDEXER_INDEX_NAME}...`);
   const files = await getFiles(baseDir);
   log.info(`Found ${files.length} files to process.`);
@@ -342,6 +348,8 @@ async function indexRepo(baseDir) {
     const language = path.extname(f);
     const content = await fs.promises.readFile(f, "utf8");
     const fileHash = fileChecksum(content);
+    const packageName = language === ".java" ? getJavaPackage(content) : "no_package";
+    const imports = language === ".java" ? getJavaImports(content) : [];
 
     // Skip unchanged files entirely
     const existingFileChecksum = await getStoredFileChecksum(relPath);
@@ -355,6 +363,8 @@ async function indexRepo(baseDir) {
     if (language === ".java") chunks = chunkJavaByMethods(content);
     else chunks = chunkByFunctions(content, language);
 
+    const methodNames = chunks.map(c => c.function_name);
+
     const isTestFlag = isTestFile({ filename: path.basename(f), filepath: relPath });
     const importance = computeImportance(relPath, content);
 
@@ -367,7 +377,11 @@ async function indexRepo(baseDir) {
         is_test: isTestFlag,
         filename: path.basename(f),
         filepath: relPath,
+        content: content,
         language,
+        package: packageName,
+        imports: imports,
+        method_names: methodNames,
         checksum: fileHash,
         importance,
         chunks_count: chunks.length
@@ -395,6 +409,8 @@ async function indexRepo(baseDir) {
             filename: path.basename(f),
             filepath: relPath,
             language,
+            package: packageName,
+            imports: imports,
             chunk_id: chunk.chunk_id,
             function_name: chunk.function_name,
             start_line: chunk.start_line,
@@ -417,6 +433,8 @@ async function indexRepo(baseDir) {
               filename: path.basename(f),
               filepath: relPath,
               language,
+              package: packageName,
+              imports: imports,
               chunk_id: chunk.chunk_id,
               sub_idx: i,
               function_name: chunk.function_name,
@@ -435,7 +453,7 @@ async function indexRepo(baseDir) {
 
   log.info(`Prepared ${tasks.length} tasks. Starting indexing...`);
   const started = Date.now();
-  await runLimited(tasks, 2);
+  await runLimited(tasks, 4);
   const duration = Date.now() - started;
 
   embedLatencies.sort((a, b) => a - b);

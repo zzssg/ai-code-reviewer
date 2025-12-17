@@ -1,0 +1,74 @@
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 1
+  },
+  "mappings": {
+    "dynamic": "strict",
+    "properties": {
+      "package": {
+        "type": "keyword"
+      },
+
+      "summary": {
+        "type": "text",
+        "analyzer": "standard"
+      },
+
+      "issues": {
+        "type": "nested",
+        "properties": {
+          "filename": {
+            "type": "keyword"
+          },
+          "line": {
+            "type": "integer"
+          },
+          "severity": {
+            "type": "keyword"
+          },
+          "description": {
+            "type": "text",
+            "analyzer": "standard"
+          }
+        }
+      },
+
+      "design_smells": {
+        "type": "nested",
+        "properties": {
+          "filename": {
+            "type": "keyword"
+          },
+          "smell": {
+            "type": "keyword"
+          },
+          "description": {
+            "type": "text",
+            "analyzer": "standard"
+          }
+        }
+      },
+
+      "recommendations": {
+        "type": "nested",
+        "properties": {
+          "filename": {
+            "type": "keyword"
+          },
+          "title": {
+            "type": "keyword"
+          },
+          "description": {
+            "type": "text",
+            "analyzer": "standard"
+          }
+        }
+      },
+
+      "reviewed_at": {
+        "type": "date"
+      }
+    }
+  }
+}

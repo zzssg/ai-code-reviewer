@@ -1,5 +1,7 @@
 import axios from "axios";
 import crypto from "crypto";
+import path from "path";
+import fs from "fs";
 import { Client } from "@opensearch-project/opensearch";
 
 export const INDEX_NAME = process.env.EMB_INDEX_NAME || "repo-code-embeddings-chunks";
@@ -43,6 +45,22 @@ export function prepareOpensearchIndexName() {
     result = INDEX_NAME + "-" + index_suffix;
   }
   return result;
+}
+
+export async function ensureIndex(indexName, indexSettingsPath) {
+  const { body: exists } = await getOsClient().indices.exists({
+    index: indexName,
+  });
+
+  if (!exists) {
+    const indexBody = JSON.parse(
+      fs.readFileSync(indexSettingsPath, "utf-8")
+    );
+    await getOsClient().indices.create({
+      index: indexName,
+      body: indexBody,
+    });
+  }
 }
 
 export async function searchContext(queryText) {
