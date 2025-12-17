@@ -16,7 +16,7 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 
 # Copy application source
-COPY embedding-server-cluster-chunks.js ./
+COPY embedding-server.js ./
 COPY logger.js ./
 COPY utils.js ./
 COPY models ./models
@@ -29,4 +29,4 @@ ENV EMB_MODEL_PATH="./models/all-MiniLM-L6-v2.onnx"
 EXPOSE 3000
 
 # Start the clustered server
-CMD ["node", "embedding-server-cluster-chunks.js"]
+CMD ["node", "embedding-server.js"]

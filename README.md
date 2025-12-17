@@ -5,7 +5,7 @@ An intelligent code review system that leverages local embeddings and Retrieval-
 ## Core Features
 
 ### 1. Embedding Server
-**File:** `embedding-server-cluster-chunks.js`
+**File:** `embedding-server.js`
 
 A high-performance Express-based API for generating text embeddings using a locally stored Transformer model (`all-MiniLM-L6-v2`). The server processes source code and generates 384-dimensional embeddings that capture semantic meaning.
 
@@ -16,7 +16,7 @@ Key features:
 - RESTful API endpoint at `/api/embedding`
 
 ### 2. Repository Indexer
-**File:** `repo-indexer-chunks.js`
+**File:** `repo-indexer.js`
 
 Scans source code repositories, creates embeddings for code chunks, and stores them in OpenSearch for later retrieval. 
 
@@ -29,7 +29,7 @@ Process:
 Supports multiple languages including JavaScript, TypeScript, Java, and Python with language-specific parsing.
 
 ### 3. Pull Request Reviewer
-**File:** `pr-reviewer-chunks.js`
+**File:** `pr-reviewer.js`
 
 Implements Retrieval-Augmented Generation (RAG) for automated pull request reviews. Listens for BitBucket webhook events and performs contextual code reviews.
 
@@ -59,24 +59,24 @@ npm install
 
 ```bash
 # To run cluster with specified number of workers
-EMB_WORKERS=4 node embedding-server-cluster-chunks.js
+EMB_WORKERS=4 node embedding-server.js
 
 # If EMB_WORKERS param is omitted, defaults to CPU-based worker count
-node embedding-server-cluster-chunks.js
+node embedding-server-cluster.js
 ```
 
 ### Indexing a Repository
 
 ```bash
 # Set the path to the repository you want to index
-EMB_PATH_TO_REPO=/path/to/your/repository node repo-indexer-chunks.js
+EMB_PATH_TO_REPO=/path/to/your/repository node repo-indexer.js
 ```
 
 ### Running the PR Reviewer
 
 ```bash
 # Start the PR reviewer service
-node pr-reviewer-chunks.js
+node pr-reviewer.js
 ```
 
 ## API
@@ -99,7 +99,7 @@ curl -X POST -H "Content-Type: application/json" "http://localhost:3000/api/embe
 
 **Embedding response example**
 ```json
-{"chunks":1,"embeddings":[[-0.028038970893248916,-0.06390024535357952,-0.293946415069513,...,-0.2707489957101643]]}
+{"chunks":1,"embeddings":[[-0.028038970893248916,-0.06390024535357952,-0.293946415069513,-0.2707489957101643]]}
 ```
 Given that all-MiniLM-L6-v2 is used for embeddings generation - it provides 384-dimentional vectors as embeddings
 
