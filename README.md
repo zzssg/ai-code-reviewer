@@ -62,7 +62,7 @@ npm install
 EMB_WORKERS=4 node embedding-server.js
 
 # If EMB_WORKERS param is omitted, defaults to CPU-based worker count
-node embedding-server-cluster.js
+node embedding-server.js
 ```
 
 ### Indexing a Repository
