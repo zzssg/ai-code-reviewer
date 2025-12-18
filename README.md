@@ -78,6 +78,9 @@ EMB_PATH_TO_REPO=/path/to/your/repository node repo-indexer.js
 # Start the PR reviewer service
 node pr-reviewer.js
 ```
+To wire up PR reviewer with your Bitbucket project, Webhook should be configured with URL `http://pr-reviewer-host:3001/bitbuclet/pr-event`
+
+Webhook should be configured to report Pull request events: "Opened" and "Modified"
 
 ## API
 
