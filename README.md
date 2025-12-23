@@ -106,17 +106,6 @@ curl -X POST -H "Content-Type: application/json" "http://localhost:3000/api/embe
 ```
 Given that all-MiniLM-L6-v2 is used for embeddings generation - it provides 384-dimentional vectors as embeddings
 
-## Integrations
-
-### Embeddings Storage
-OpenSearch is used to store the generated embeddings. To create an OpenSearch index for 384-dimensional embeddings:
-
-```bash
-curl -X PUT "http://localhost:9200/repo-code-embeddings" -u <user>:<pass> -H "Content-Type: application/json" -d @create-opensearch-index-chunks.json
-```
-
-The index configuration supports KNN (k-nearest neighbors) search for efficient similarity lookups.
-
 ## Integration Points
 
 ### BitBucket Webhooks
@@ -124,6 +113,11 @@ Automatically triggers pull request reviews when new PRs are created or updated,
 
 ### OpenSearch
 Serves as the primary storage backend for embeddings and metadata. Provides fast semantic search capabilities through KNN (k-nearest neighbors) indexing to find similar code patterns.
+To create an OpenSearch index for 384-dimensional embeddings:
+
+```bash
+curl -X PUT "http://localhost:9200/repo-code-embeddings" -u <user>:<pass> -H "Content-Type: application/json" -d @create-opensearch-index-chunks.json
+```
 
 ### Large Language Models (LLMs)
 Integrates with LLM APIs to generate natural language review comments based on retrieved context, providing human-readable feedback that references existing code patterns.
