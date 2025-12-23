@@ -112,7 +112,9 @@ Given that all-MiniLM-L6-v2 is used for embeddings generation - it provides 384-
 Automatically triggers pull request reviews when new PRs are created or updated, enabling continuous integration of code review processes.
 
 ### OpenSearch
-Serves as the primary storage backend for embeddings and metadata. Provides fast semantic search capabilities through KNN (k-nearest neighbors) indexing to find similar code patterns.
+Serves as the primary storage backend for embeddings and metadata. Provides fast semantic search capabilities through KNN (k-nearest neighbors) indexing to find similar code patterns.  
+
+#### Creating OpenSearch Indexes
 To create an OpenSearch index for 384-dimensional embeddings:
 
 ```bash
