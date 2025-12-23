@@ -114,5 +114,19 @@ curl -X PUT "http://localhost:9200/repo-code-embeddings" -u <user>:<pass> -H "Co
 
 The index configuration supports KNN (k-nearest neighbors) search for efficient similarity lookups.
 
+## Integration Points
+
+### BitBucket Webhooks
+Automatically triggers pull request reviews when new PRs are created or updated, enabling continuous integration of code review processes.
+
+### OpenSearch
+Serves as the primary storage backend for embeddings and metadata. Provides fast semantic search capabilities through KNN (k-nearest neighbors) indexing to find similar code patterns.
+
+### Large Language Models (LLMs)
+Integrates with LLM APIs to generate natural language review comments based on retrieved context, providing human-readable feedback that references existing code patterns.
+
+### Docker Containers
+Fully containerized deployment using Docker and docker-compose for consistent environments across development, staging, and production setups.
+
 ## Notes
 This project is based on all-MiniLM-L6-v2 (Xenova / Hugging Face) under Apache 2.0 license.
