@@ -1,9 +1,7 @@
 import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
-import { cpus } from "os";
 import fs from "fs";
-import cluster from "cluster";
 import ort from "onnxruntime-node";
 import { Tokenizer } from "@huggingface/tokenizers";
 
@@ -15,13 +13,19 @@ const app = express();
 app.use(express.json({ limit: "10mb" }));
 
 let tokenizer;
+let session;
+
+// -----------------------------
+// CONFIG
+// -----------------------------
+const MAX_LENGTH = 256;
 
 // -----------------------------
 // TOKENIZER LOADING
 // -----------------------------
 async function initTokenizer() {
-  const tokenizerJsonPath = path.join(MODELS_DIR, "tokenizer.json");
-  const tokenizerConfigPath = path.join(MODELS_DIR, "tokenizer_config.json");
+  const tokenizerJsonPath = path.join(MODELS_DIR, "tokenizer_q3-emb-0.6b.json");
+  const tokenizerConfigPath = path.join(MODELS_DIR, "tokenizer_config_q3-emb-0.6b.json");
 
   const tokenizerJson = JSON.parse(fs.readFileSync(tokenizerJsonPath, "utf-8"));
   const tokenizerConfig = JSON.parse(fs.readFileSync(tokenizerConfigPath, "utf-8"));
@@ -31,54 +35,51 @@ async function initTokenizer() {
 }
 
 // -----------------------------
-// TOKENIZATION & CHUNKING
+// MODEL INIT (MEMORY OPTIMIZED)
 // -----------------------------
-const CLS_ID = 101; // default [CLS] ID for many HF models, adjust if needed
-const SEP_ID = 102; // default [SEP] ID
-const PAD_ID = 0;   // default [PAD] ID
+async function initModel() {
+  const modelPath = path.join(MODELS_DIR, "qwen3-embedding-0.6b-int8.onnx");
 
-function tokenizeChunk(tokenIds) {
-  const inputIds = [CLS_ID, ...tokenIds, SEP_ID];
-  const attentionMask = inputIds.map(id => (id === PAD_ID ? 0 : 1));
+  // For the options available see https://onnxruntime.ai/docs/api/js/interfaces/InferenceSession.SessionOptions.html
+  session = await ort.InferenceSession.create(modelPath, {
+    executionProviders: ["cpu"],
+    executionMode: "sequential",
+    intraOpNumThreads: 1,
+    interOpNumThreads: 1
+  });
+
+  console.log("ONNX model loaded");
+  console.log("Model inputs:", session.inputNames);
+}
+
+// -----------------------------
+// TOKENIZATION
+// -----------------------------
+function tokenize(text) {
+  const encoding = tokenizer.encode(text);
+
+  let inputIds = encoding.ids.slice(0, MAX_LENGTH);
+  let attentionMask = new Array(inputIds.length).fill(1);
+
   return { inputIds, attentionMask };
 }
 
-function tokenizeLongText(text, maxLength = 256, overlap = 64) {
-  if (!tokenizer) throw new Error("Tokenizer not initialized");
-
-  const encoding = tokenizer.encode(text);
-  const tokenIds = encoding.ids;
-
-  if (tokenIds.length <= maxLength - 2) {
-    return [tokenizeChunk(tokenIds)];
-  }
-
-  const chunks = [];
-  let start = 0;
-  while (start < tokenIds.length) {
-    const end = start + (maxLength - 2);
-    const chunkIds = tokenIds.slice(start, end);
-    chunks.push(tokenizeChunk(chunkIds));
-    start += (maxLength - 2) - overlap;
-  }
-
-  return chunks;
-}
-
 // -----------------------------
-// MODEL LOADING
+// L2 NORMALIZATION
 // -----------------------------
-const modelPath = path.join(MODELS_DIR, "all-MiniLM-L6-v2.onnx");
-let session;
-
-async function initModel() {
-  try {
-    session = await ort.InferenceSession.create(modelPath);
-    console.log("ONNX model loaded successfully");
-  } catch (e) {
-    console.error("Failed to load ONNX model at path:", modelPath, e);
-    process.exit(1);
+function l2Normalize(vector) {
+  let sum = 0;
+  for (let i = 0; i < vector.length; i++) {
+    sum += vector[i] * vector[i];
   }
+
+  const norm = Math.sqrt(sum) || 1;
+
+  for (let i = 0; i < vector.length; i++) {
+    vector[i] /= norm;
+  }
+
+  return vector;
 }
 
 // -----------------------------
@@ -88,12 +89,13 @@ function meanPool(hiddenStates, attentionMask) {
   const seqLength = attentionMask.length;
   const hiddenSize = hiddenStates.length / seqLength;
 
-  const pooled = new Array(hiddenSize).fill(0);
+  const pooled = new Float32Array(hiddenSize);
   let validTokens = 0;
 
   for (let i = 0; i < seqLength; i++) {
     if (attentionMask[i] === 0) continue;
     validTokens++;
+
     for (let j = 0; j < hiddenSize; j++) {
       pooled[j] += hiddenStates[i * hiddenSize + j];
     }
@@ -105,26 +107,44 @@ function meanPool(hiddenStates, attentionMask) {
     }
   }
 
-  return pooled;
+  return l2Normalize(pooled);
 }
 
 // -----------------------------
-// EMBEDDING A SINGLE CHUNK
+// EMBEDDING
 // -----------------------------
-async function embedChunk({ inputIds, attentionMask }) {
+async function embed(text) {
+  const { inputIds, attentionMask } = tokenize(text);
   const seqLength = inputIds.length;
 
-  const inputIdsTensor = new ort.Tensor("int64", BigInt64Array.from(inputIds.map(BigInt)), [1, seqLength]);
-  const attentionMaskTensor = new ort.Tensor("int64", BigInt64Array.from(attentionMask.map(BigInt)), [1, seqLength]);
-  const tokenTypeIdsTensor = new ort.Tensor("int64", BigInt64Array.from(new Array(seqLength).fill(0).map(BigInt)), [1, seqLength]);
+  const inputIdsTensor = new ort.Tensor(
+    "int64",
+    BigInt64Array.from(inputIds.map(BigInt)),
+    [1, seqLength]
+  );
+
+  const attentionMaskTensor = new ort.Tensor(
+    "int64",
+    BigInt64Array.from(attentionMask.map(BigInt)),
+    [1, seqLength]
+  );
+
+  const positionIdsTensor = new ort.Tensor(
+    "int64",
+    BigInt64Array.from(
+      Array.from({ length: seqLength }, (_, i) => BigInt(i))
+    ),
+    [1, seqLength]
+  );
 
   const outputs = await session.run({
     input_ids: inputIdsTensor,
     attention_mask: attentionMaskTensor,
-    token_type_ids: tokenTypeIdsTensor
+    position_ids: positionIdsTensor
   });
 
-  return meanPool(outputs["last_hidden_state"].data, attentionMask);
+  const hidden = outputs.last_hidden_state.data;
+  return Array.from(meanPool(hidden, attentionMask));
 }
 
 // -----------------------------
@@ -135,37 +155,26 @@ app.post("/api/embedding", async (req, res) => {
     const { text } = req.body;
     if (!text) return res.status(400).json({ error: "Missing text" });
 
-    const chunks = tokenizeLongText(text);
-    const embeddings = [];
+    const embedding = await embed(text);
 
-    for (const chunk of chunks) {
-      const emb = await embedChunk(chunk);
-      embeddings.push(emb);
-    }
-
-    res.json({ chunks: chunks.length, embeddings });
+    res.json({
+      dimensions: embedding.length,
+      embedding
+    });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: err.toString() });
+    res.status(500).json({ error: err.message });
   }
 });
 
 // -----------------------------
-// CLUSTER SERVER
+// START SERVER (SINGLE WORKER)
 // -----------------------------
-if (cluster.isPrimary) {
-  const workers = process.env.EMB_WORKERS || Math.max(4, Math.floor(cpus().length / 2));
-  console.log(`Master starting ${workers} workers...`);
-  for (let i = 0; i < workers; i++) cluster.fork();
+(async () => {
+  await initTokenizer();
+  await initModel();
 
-  cluster.on("exit", worker => {
-    console.log(`Worker ${worker.process.pid} died. Restarting...`);
-    cluster.fork();
-  });
-} else {
-  (async () => {
-    await initTokenizer();
-    await initModel();
-    app.listen(PORT, () => console.log(`Worker ${process.pid} listening on port ${PORT}`));
-  })();
-}
+  app.listen(PORT, () =>
+    console.log(`Embedding server running on port ${PORT}`)
+  );
+})();

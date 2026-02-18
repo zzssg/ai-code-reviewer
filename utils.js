@@ -14,7 +14,7 @@ export const LLM_REVIEW_MODEL = process.env.LLM_REVIEW_MODEL || "qwen3-coder-30b
 export const LLM_ENDPOINT = process.env.LLM_ENDPOINT || "http://localhost:1234/v1/responses";
 export const LLM_API_KEY = process.env.LLM_API_KEY || "";
 
-export const EMB_SIZE = 384; // Embedding size
+export const EMB_SIZE = 1024; // Embedding size
 
 let osClient = undefined;
 

@@ -23,7 +23,7 @@
       "content": { "type": "text" },
       "embedding": {
           "type": "knn_vector",
-          "dimension": 384,
+          "dimension": 1024,
           "method": {
             "name": "hnsw",
             "engine": "faiss",
