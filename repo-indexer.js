@@ -52,7 +52,7 @@ async function getFiles(dir, exts = [".js", ".ts", ".java", ".py"]) {
 // -----------------------------
 // JAVA METHOD CHUNKING
 // -----------------------------
-function chunkJavaByMethods(content) {
+export function chunkJavaByMethods(content) {
   try {
     const cst = parseJava(content);
     const lines = content.split(/\r?\n/);
@@ -358,6 +358,8 @@ async function indexRepo(baseDir) {
       return; // do not process chunks or embeddings
     }
 
+    let taskLatency = {chunks: 0, latency: 0};
+
     // Chunk detection
     let chunks = [];
     if (language === ".java") chunks = chunkJavaByMethods(content);
@@ -395,11 +397,13 @@ async function indexRepo(baseDir) {
       const chunkHash = fileChecksum(chunk.text);
 
       const t0 = Date.now();
-      const embeddings = await embedText(chunk.text);
+      const embedding = await embedText(chunk.text);
       embedCalls++;
-      embedLatencies.push(Date.now() - t0);
+      taskLatency.chunks++;
+      taskLatency.latency += (Date.now() - t0);
+      //embedLatencies.push(Date.now() - t0);
 
-      if (embeddings.length <= 1) {
+      if (embedding) {
         await getOsClient().index({
           index: REPO_INDEXER_INDEX_NAME,
           id: chunkId,
@@ -417,38 +421,14 @@ async function indexRepo(baseDir) {
             end_line: chunk.end_line,
             content: chunk.text,
             checksum: chunkHash,
-            embedding: embeddings[0],
+            embedding: embedding,
             importance
           }
         });
-      } else {
-        for (let i = 0; i < embeddings.length; i++) {
-          const subId = `${chunkId}::sub_${i}`;
-          await getOsClient().index({
-            index: REPO_INDEXER_INDEX_NAME,
-            id: subId,
-            body: {
-              doc_type: "chunk",
-              is_test: isTestFlag,
-              filename: path.basename(f),
-              filepath: relPath,
-              language,
-              package: packageName,
-              imports: imports,
-              chunk_id: chunk.chunk_id,
-              sub_idx: i,
-              function_name: chunk.function_name,
-              start_line: chunk.start_line,
-              end_line: chunk.end_line,
-              content: chunk.text,
-              checksum: chunkHash,
-              embedding: embeddings[i],
-              importance
-            }
-          });
-        }
       }
     }
+    embedLatencies.push(taskLatency);
+    log.info(`Processed file: ${relPath}, chunks: ${taskLatency.chunks}, avg latency: ${taskLatency.latency / taskLatency.chunks || 0} ms, total latency: ${taskLatency.latency} ms`);
   });
 
   log.info(`Prepared ${tasks.length} tasks. Starting indexing...`);
@@ -456,10 +436,10 @@ async function indexRepo(baseDir) {
   await runLimited(tasks, 4);
   const duration = Date.now() - started;
 
-  embedLatencies.sort((a, b) => a - b);
-  const min = embedLatencies[0] ?? 0;
-  const max = embedLatencies[embedLatencies.length - 1] ?? 0;
-  const p50 = percentile(embedLatencies, 50);
+  embedLatencies.sort((a, b) => a.latency - b.latency);
+  const min = embedLatencies[0]?.latency ?? 0;
+  const max = embedLatencies[embedLatencies.length - 1]?.latency ?? 0;
+  const p50 = percentile(embedLatencies.map(l => l.latency), 50);
 
   log.info(
     "\n===== INDEXING STATS =====" +

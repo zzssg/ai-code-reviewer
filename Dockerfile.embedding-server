@@ -17,14 +17,13 @@ RUN npm ci --omit=dev
 
 # Copy application source
 COPY embedding-server.js ./
-COPY logger.js ./
 COPY utils.js ./
 COPY models ./models
 
 # Environment variables
 ENV PORT=3000
 ENV EMB_WORKERS=2
-ENV EMB_MODEL_PATH="./models/all-MiniLM-L6-v2.onnx"
+ENV EMB_MODEL_PATH="./models/qwen3-embedding-0.6b-int8.onnx"
 
 EXPOSE 3000
 

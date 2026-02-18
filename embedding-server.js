@@ -2,6 +2,7 @@ import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
+import cluster from "cluster";
 import ort from "onnxruntime-node";
 import { Tokenizer } from "@huggingface/tokenizers";
 
@@ -43,9 +44,9 @@ async function initModel() {
   // For the options available see https://onnxruntime.ai/docs/api/js/interfaces/InferenceSession.SessionOptions.html
   session = await ort.InferenceSession.create(modelPath, {
     executionProviders: ["cpu"],
-    executionMode: "sequential",
-    intraOpNumThreads: 1,
-    interOpNumThreads: 1
+    executionMode: "parallel",
+    intraOpNumThreads: 4,
+    interOpNumThreads: 4
   });
 
   console.log("ONNX model loaded");
@@ -168,9 +169,20 @@ app.post("/api/embedding", async (req, res) => {
 });
 
 // -----------------------------
-// START SERVER (SINGLE WORKER)
+// START CLUSTER SERVER
 // -----------------------------
-(async () => {
+if (cluster.isPrimary) {
+  const workers = process.env.EMB_WORKERS ? parseInt(process.env.EMB_WORKERS) : 2;
+  console.log(`Primary process is running. Forking ${workers} workers...`);
+  for (let i = 0; i < workers; i++) {
+    cluster.fork();
+  }
+  cluster.on("exit", (worker, code, signal) => {
+    console.log(`Worker ${worker.process.pid} died. Restarting...`);
+    cluster.fork();
+  });
+} else {
+  (async () => {
   await initTokenizer();
   await initModel();
 
@@ -178,3 +190,4 @@ app.post("/api/embedding", async (req, res) => {
     console.log(`Embedding server running on port ${PORT}`)
   );
 })();
+}

@@ -17,7 +17,6 @@ RUN npm ci --omit=dev
 
 # Copy application source
 COPY pr-reviewer.js ./
-COPY logger.js ./
 COPY utils.js ./
 
 # Environment variables

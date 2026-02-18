@@ -65,11 +65,11 @@ export async function embedText(text) {
 
   const data = await response.json();
 
-  if (!data.embeddings) {
-    throw new Error("Invalid response: missing 'embeddings' field");
+  if (!data.embedding) {
+    throw new Error("Invalid response: missing 'embedding' field");
   }
 
-  return data.embeddings;
+  return data.embedding;
 }
 
 export function prepareOpensearchIndexName() {
