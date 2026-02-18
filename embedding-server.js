@@ -44,9 +44,7 @@ async function initModel() {
   // For the options available see https://onnxruntime.ai/docs/api/js/interfaces/InferenceSession.SessionOptions.html
   session = await ort.InferenceSession.create(modelPath, {
     executionProviders: ["cpu"],
-    executionMode: "parallel",
-    intraOpNumThreads: 4,
-    interOpNumThreads: 4
+    executionMode: "parallel"
   });
 
   console.log("ONNX model loaded");
