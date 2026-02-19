@@ -257,7 +257,7 @@ it("JAVA: 2 annotated methods into 2 chunks with surrounding spaces", () => {
     expect(chunks[1].end_line).toBe(14);
   });
 
-    it("JAVA: parses AllocationBenchmark.java and finds main benchmark methods and helpers", async () => {
+  it("JAVA: parses AllocationBenchmark.java and finds main benchmark methods and helpers", async () => {
     const content = await fs.promises.readFile(new URL("./AllocationBenchmark.java", import.meta.url), "utf8");
     const chunks = chunkJavaByMethods(content);
     const names = chunks.map(c => c.function_name);
@@ -268,6 +268,27 @@ it("JAVA: 2 annotated methods into 2 chunks with surrounding spaces", () => {
     expect(names).toContain("measureExclusionOnZoneAwareStartedShard");
     expect(names).toContain("measureShardRelocationComplete");
     expect(names).toContain("setUpClusterNodes");
+  });
+
+  it("JAVA: parses AvailableIndexFoldersBenchmark.java and finds methods", async () => {
+    const content = await fs.promises.readFile(new URL("./AvailableIndexFoldersBenchmark.java", import.meta.url), "utf8");
+    const chunks = chunkJavaByMethods(content);
+    const names = chunks.map(c => c.function_name);
+    console.log("Extracted method names:", names);
+    expect(names.length).toBe(3);
+    expect(names).toContain("setup");
+    expect(names).toContain("availableIndexFolderNaive");
+    expect(names).toContain("availableIndexFolderOptimized");
+  });
+
+  it("JAVA: parses RoundableSupplier.java and finds methods", async () => {
+    const content = await fs.promises.readFile(new URL("./RoundableSupplier.java", import.meta.url), "utf8");
+    const chunks = chunkJavaByMethods(content);
+    const names = chunks.map(c => c.function_name);
+    console.log("Extracted method names:", names);
+    expect(names.length).toBe(2);
+    expect(names).toContain("RoundableSupplier");
+    expect(names).toContain("get");
   });
 
   it("JAVA: static initializer block", () => {

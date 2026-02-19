@@ -11,10 +11,9 @@ import {
   ensureIndex,
   PATH_TO_REPO
 } from "./utils.js";
+import { chunkJavaByMethods } from "./repo-indexer.utils.js";
 
 const log = createLogger(import.meta.url);
-
-import { parse as parseJava } from "java-parser";
 
 // Flag to skip cleanup of obsolete files and chunks
 const SKIP_CLEANUP = process.env.SKIP_CLEANUP === "true";
@@ -47,73 +46,6 @@ async function getFiles(dir, exts = [".js", ".ts", ".java", ".py"]) {
     .concat(...files)
     .filter(f => exts.includes(path.extname(f)))
     .filter(f => !blackList.includes(path.basename(f)));
-}
-
-// -----------------------------
-// JAVA METHOD CHUNKING
-// -----------------------------
-export function chunkJavaByMethods(content) {
-  try {
-    const cst = parseJava(content);
-    const lines = content.split(/\r?\n/);
-    const chunks = [];
-
-    const methodRegex = /(?:public|protected|private|static|\s)+[\w<>\[\]]+\s+([A-Za-z0-9_]+)\s*\([^)]*\)\s*\{/;
-    let chunkIndex = 0;
-    let current = null;
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      const m = line.match(methodRegex);
-      if (m) {
-        if (current) {
-          current.end = i - 1;
-          const body = lines.slice(current.start, current.end + 1).join("\n");
-          chunks.push({
-            chunk_id: chunkIndex++,
-            function_name: current.name || "anonymous",
-            start_line: current.start + 1,
-            end_line: current.end + 1,
-            text: body
-          });
-        }
-        current = { start: i, name: m[1] || "anonymous" };
-      }
-    }
-
-    if (current) {
-      current.end = lines.length - 1;
-      const body = lines.slice(current.start, current.end + 1).join("\n");
-      chunks.push({
-        chunk_id: chunkIndex++,
-        function_name: current.name || "anonymous",
-        start_line: current.start + 1,
-        end_line: current.end + 1,
-        text: body
-      });
-    }
-
-    if (chunks.length === 0) {
-      chunks.push({
-        chunk_id: 0,
-        function_name: "full_file",
-        start_line: 1,
-        end_line: lines.length,
-        text: content
-      });
-    }
-
-    return chunks;
-  } catch (err) {
-    const lines = content.split(/\r?\n/);
-    return [{
-      chunk_id: 0,
-      function_name: "full_file",
-      start_line: 1,
-      end_line: lines.length,
-      text: content
-    }];
-  }
 }
 
 // -----------------------------
