@@ -329,13 +329,12 @@ async function indexRepo(baseDir) {
       const chunkHash = fileChecksum(chunk.text);
 
       const t0 = Date.now();
-      const embedding = await embedText(chunk.text);
+      const embeddings = await embedText(chunk.text);
       embedCalls++;
       taskLatency.chunks++;
       taskLatency.latency += (Date.now() - t0);
-      //embedLatencies.push(Date.now() - t0);
 
-      if (embedding) {
+      if (embeddings.length <= 1) {
         await getOsClient().index({
           index: REPO_INDEXER_INDEX_NAME,
           id: chunkId,
@@ -353,10 +352,37 @@ async function indexRepo(baseDir) {
             end_line: chunk.end_line,
             content: chunk.text,
             checksum: chunkHash,
-            embedding: embedding,
+            embedding: embeddings[0] || [],
             importance
           }
         });
+      } else {
+        // In case embedding model returns multiple vectors (e.g. for long chunks), we store them as separate docs with same chunk_id but different sub_chunk_id
+        for (let i = 0; i < embeddings.length; i++) {
+          const subChunkId = `${chunkId}_sub_${i}`;
+          await getOsClient().index({
+            index: REPO_INDEXER_INDEX_NAME,
+            id: subChunkId,
+            body: {
+              doc_type: "chunk",
+              is_test: isTestFlag,
+              filename: path.basename(f),
+              filepath: relPath,
+              language,
+              package: packageName,
+              imports: imports,
+              chunk_id: chunk.chunk_id,
+              sub_chunk_id: i,
+              function_name: chunk.function_name,
+              start_line: chunk.start_line,
+              end_line: chunk.end_line,
+              content: chunk.text,
+              checksum: chunkHash,
+              embedding: embeddings[i],
+              importance
+            }
+          });
+        }
       }
     }
     embedLatencies.push(taskLatency);
@@ -365,7 +391,7 @@ async function indexRepo(baseDir) {
 
   log.info(`Prepared ${tasks.length} tasks. Starting indexing...`);
   const started = Date.now();
-  await runLimited(tasks, 4);
+  await runLimited(tasks, 1);
   const duration = Date.now() - started;
 
   embedLatencies.sort((a, b) => a.latency - b.latency);

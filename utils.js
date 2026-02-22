@@ -8,13 +8,23 @@ import { Client } from "@opensearch-project/opensearch";
 
 export const INDEX_NAME = process.env.EMB_INDEX_NAME || "repo-code-embeddings-chunks";
 export const PATH_TO_REPO = process.env.EMB_PATH_TO_REPO || "../OpenSearch/";
-export const EMB_ENDPOINT = process.env.EMB_ENDPOINT || "http://localhost:3000/api/embedding";
+export const EMB_ENDPOINT = process.env.EMB_ENDPOINT || "http://localhost:3000/v1/embeddings";
 export const OS_ENDPOINT = process.env.EMB_OS_ENDPOINT ||"http://localhost:9200";
 export const LLM_REVIEW_MODEL = process.env.LLM_REVIEW_MODEL || "qwen3-coder-30b-a3b-instruct-ud"; //"devstral-small-2-24b-instruct-2512"; // "qwen3-coder-30b-a3b-instruct-ud";
 export const LLM_ENDPOINT = process.env.LLM_ENDPOINT || "http://localhost:1234/v1/responses";
 export const LLM_API_KEY = process.env.LLM_API_KEY || "";
 
-export const EMB_SIZE = 1024; // Embedding size
+export const EMB_SIZE_MAP = {
+  "qwen3-embedding-0.6b": 1024,
+  "embeddinggemma-0.3b": 768,
+  "all-MiniLM-L6-v2": 384
+};
+
+export function getEmbeddingSize(modelName) {
+  return EMB_SIZE_MAP[modelName] || 1024;
+}
+
+export const EMB_SIZE = getEmbeddingSize(process.env.EMB_MODEL_NAME || "qwen3-embedding-0.6b");
 
 let osClient = undefined;
 
@@ -55,21 +65,22 @@ export async function embedText(text) {
   const response = await fetch(EMB_ENDPOINT, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ input: text }),
   });
 
   if (!response.ok) {
     const errText = await response.text();
-    throw new Error(`Embedding request failed: ${response.status} ${errText}`);
+    throw new Error(`Embedding request to ${EMB_ENDPOINT} failed: ${response.status} ${errText}`);
   }
 
   const data = await response.json();
 
-  if (!data.embedding) {
-    throw new Error("Invalid response: missing 'embedding' field");
+  if (!data.data?.length || !data.data[0].embedding) {
+    throw new Error("Invalid response: missing embedding payload");
   }
 
-  return data.embedding;
+  // Return array of embedding vectors
+  return data.filter(item => item.object === "embedding").map(item => item.embedding);
 }
 
 export function prepareOpensearchIndexName() {

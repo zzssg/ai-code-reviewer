@@ -9,12 +9,14 @@ import { Tokenizer } from "@huggingface/tokenizers";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
 const MODELS_DIR = path.join(__dirname, "models");
+const MODEL_NAME = process.env.EMB_MODEL_NAME || "qwen3-embedding-0.6b";
 
 const app = express();
 app.use(express.json({ limit: "10mb" }));
 
-let tokenizer;
+let tokenizerHF;
 let session;
+let modelInputs;
 
 // -----------------------------
 // CONFIG
@@ -25,42 +27,53 @@ const MAX_LENGTH = 256;
 // TOKENIZER LOADING
 // -----------------------------
 async function initTokenizer() {
-  const tokenizerJsonPath = path.join(MODELS_DIR, "tokenizer_q3-emb-0.6b.json");
-  const tokenizerConfigPath = path.join(MODELS_DIR, "tokenizer_config_q3-emb-0.6b.json");
+  const tokenizerPath = path.join(MODELS_DIR, `tokenizer_${MODEL_NAME}.json`);
+  const tokenizerConfigPath = path.join(MODELS_DIR, `tokenizer_config_${MODEL_NAME}.json`);
 
-  const tokenizerJson = JSON.parse(fs.readFileSync(tokenizerJsonPath, "utf-8"));
+  const tokenizer = JSON.parse(fs.readFileSync(tokenizerPath, "utf-8"));
   const tokenizerConfig = JSON.parse(fs.readFileSync(tokenizerConfigPath, "utf-8"));
 
-  tokenizer = new Tokenizer(tokenizerJson, tokenizerConfig);
-  console.log("Tokenizer loaded successfully");
+  tokenizerHF = new Tokenizer(tokenizer, tokenizerConfig);
+  console.log(`Tokenizer loaded successfully using paths: ${tokenizerPath}, ${tokenizerConfigPath}`);
 }
 
 // -----------------------------
 // MODEL INIT (MEMORY OPTIMIZED)
 // -----------------------------
 async function initModel() {
-  const modelPath = path.join(MODELS_DIR, "qwen3-embedding-0.6b-int8.onnx");
+  const modelPath = path.join(MODELS_DIR, `${MODEL_NAME}.onnx`);
 
   // For the options available see https://onnxruntime.ai/docs/api/js/interfaces/InferenceSession.SessionOptions.html
   session = await ort.InferenceSession.create(modelPath, {
     executionProviders: ["cpu"],
-    executionMode: "parallel"
+    executionMode: "parallel",
+    graphOptimizationLevel: "all"
   });
 
-  console.log("ONNX model loaded");
-  console.log("Model inputs:", session.inputNames);
+  console.log(`ONNX model '${MODEL_NAME}' loaded using path: ${modelPath}`);
+  modelInputs = session.inputNames;
+  console.log(`Model inputs: ${modelInputs.join(", ")}`);
 }
 
 // -----------------------------
 // TOKENIZATION
 // -----------------------------
-function tokenize(text) {
-  const encoding = tokenizer.encode(text);
+function tokenizeLongText(text, maxLength = MAX_LENGTH, overlap = 64) {
+  const encoding = tokenizerHF.encode(text);
+  const inputIds = encoding.ids;
 
-  let inputIds = encoding.ids.slice(0, MAX_LENGTH);
-  let attentionMask = new Array(inputIds.length).fill(1);
-
-  return { inputIds, attentionMask };
+  if (inputIds.length <= maxLength - 2) {
+    return [{ inputIds: inputIds.slice(0, maxLength), attentionMask: new Array(inputIds.length).fill(1) }];
+  }
+  const chunks = [];
+  for (let start = 0; start < inputIds.length; start += maxLength - overlap) {
+    const end = Math.min(start + maxLength - 2, inputIds.length);
+    chunks.push({
+      inputIds: inputIds.slice(start, end),
+      attentionMask: new Array(end - start).fill(1)
+    });
+  }
+  return chunks;
 }
 
 // -----------------------------
@@ -112,8 +125,7 @@ function meanPool(hiddenStates, attentionMask) {
 // -----------------------------
 // EMBEDDING
 // -----------------------------
-async function embed(text) {
-  const { inputIds, attentionMask } = tokenize(text);
+async function embedChunk({ inputIds, attentionMask }) {
   const seqLength = inputIds.length;
 
   const inputIdsTensor = new ort.Tensor(
@@ -136,11 +148,15 @@ async function embed(text) {
     [1, seqLength]
   );
 
-  const outputs = await session.run({
+  let runInputs = {
     input_ids: inputIdsTensor,
-    attention_mask: attentionMaskTensor,
-    position_ids: positionIdsTensor
-  });
+    attention_mask: attentionMaskTensor
+  };
+  if (modelInputs.includes("position_ids")) {
+    runInputs.position_ids = positionIdsTensor;
+  }
+
+  const outputs = await session.run(runInputs);
 
   const hidden = outputs.last_hidden_state.data;
   return Array.from(meanPool(hidden, attentionMask));
@@ -149,16 +165,34 @@ async function embed(text) {
 // -----------------------------
 // API ENDPOINT
 // -----------------------------
-app.post("/api/embedding", async (req, res) => {
+app.post("/v1/embeddings", async (req, res) => {
   try {
-    const { text } = req.body;
-    if (!text) return res.status(400).json({ error: "Missing text" });
+    const { input } = req.body;
+    if (!input) return res.status(400).json({ error: "Missing input" });
 
-    const embedding = await embed(text);
+    const chunks = tokenizeLongText(input);
+    const embeddings = [];
+    for (const chunk of chunks) {
+      const emb = await embedChunk(chunk);
+      embeddings.push(emb);
+    }
 
-    res.json({
-      dimensions: embedding.length,
-      embedding
+    const data = embeddings.map((emb, idx) => {
+      return {
+        object: "embedding",
+        embedding: Array.isArray(emb) ? emb : [],
+        index: idx,
+      }
+    });
+
+    res.json({ 
+      object: "list", 
+      data, 
+      model: MODEL_NAME,
+      "usage": {
+        "prompt_tokens": input.length, 
+        "total_tokens": 0
+      } 
     });
   } catch (err) {
     console.error(err);

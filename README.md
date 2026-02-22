@@ -13,7 +13,7 @@ Key features:
 - Cluster-based architecture for improved performance
 - Text chunking for handling large code segments
 - ONNX runtime for efficient model inference
-- RESTful API endpoint at `/api/embedding`
+- RESTful API endpoint at `/v1/embeddings`
 
 ### 2. Repository Indexer
 **File:** `repo-indexer.js`
@@ -84,7 +84,7 @@ Webhook should be configured to report Pull request events: "Opened" and "Modifi
 
 ## API
 
-**POST** `/api/embedding`
+**POST** `/v1/embeddings`
 
 Generates embeddings for the provided text.
 
@@ -97,7 +97,7 @@ Generates embeddings for the provided text.
 
 **Embedding query example**
 ```bash
-curl -X POST -H "Content-Type: application/json" "http://localhost:3000/api/embedding" -d @emb-request.json
+curl -X POST -H "Content-Type: application/json" "http://localhost:3000/v1/embeddings" -d @emb-request.json
 ```
 
 **Embedding response example**
