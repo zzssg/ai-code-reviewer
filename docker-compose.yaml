@@ -8,9 +8,9 @@ services:
       - "3000:3000"
     environment:
       EMB_WORKERS: 2
-      EMB_MODEL_PATH: "./models/all-MiniLM-L6-v2.onnx"
+      EMB_MODEL_NAME: "qwen3-embedding-0.6b"
       EMB_OS_ENDPOINT: "http://opensearch-n1:9200"
-      EMB_ENDPOINT: "http://embedding-server:3000/api/embedding"
+      EMB_ENDPOINT: "http://embedding-server:3000/v1/embeddings"
       EMB_INDEX_NAME: "repo-code-embeddings-chunks"
     networks:
       - code-reviewer-network-ext
@@ -24,7 +24,7 @@ services:
     ports:
       - "3001:3001"
     environment:
-      EMB_ENDPOINT: "http://embedding-server:3000/api/embedding"
+      EMB_ENDPOINT: "http://embedding-server:3000/v1/embeddings"
       EMB_OS_ENDPOINT: "http://opensearch-n1:9200"
       EMB_INDEX_NAME: "repo-code-embeddings-chunks"
       LLM_ENDPOINT: "http://host.docker.internal:1234/v1/responses"
@@ -40,6 +40,7 @@ services:
       - bootstrap.memory_lock=true
       - "OPENSEARCH_JAVA_OPTS=-Xms2g -Xmx2g"
       - plugins.security.disabled=true
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=q!W2@3DG65_gHk3
     ulimits:
       memlock:
         soft: -1

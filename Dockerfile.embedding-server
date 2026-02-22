@@ -23,7 +23,7 @@ COPY models ./models
 # Environment variables
 ENV PORT=3000
 ENV EMB_WORKERS=2
-ENV EMB_MODEL_PATH="./models/qwen3-embedding-0.6b-int8.onnx"
+ENV EMB_MODEL_NAME="qwen3-embedding-0.6b"
 
 EXPOSE 3000
 
