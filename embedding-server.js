@@ -140,20 +140,16 @@ async function embedChunk({ inputIds, attentionMask }) {
     [1, seqLength]
   );
 
-  const positionIdsTensor = new ort.Tensor(
-    "int64",
-    BigInt64Array.from(
-      Array.from({ length: seqLength }, (_, i) => BigInt(i))
-    ),
-    [1, seqLength]
-  );
-
   let runInputs = {
     input_ids: inputIdsTensor,
     attention_mask: attentionMaskTensor
   };
   if (modelInputs.includes("position_ids")) {
-    runInputs.position_ids = positionIdsTensor;
+    runInputs.position_ids = new ort.Tensor("int64", BigInt64Array.from(Array.from({ length: seqLength }, (_, i) => BigInt(i))), [1, seqLength]);
+
+  }
+  if (modelInputs.includes("token_type_ids")) {
+    runInputs.token_type_ids = new ort.Tensor("int64", BigInt64Array.from(new Array(seqLength).fill(0)), [1, seqLength]);
   }
 
   const outputs = await session.run(runInputs);
