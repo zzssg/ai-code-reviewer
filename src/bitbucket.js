@@ -196,12 +196,41 @@ function findClosestLineInTolerance(fileDiff, requestedLine, tolerance = IGNORE_
 
 function findAnchorInfoForIssue(fileDiff, issue) {
   const requestedLine = issue?.line_number;
+  const lineType = issue?.line_type; // "ADDED" | "REMOVED" | "CONTEXT" | null
   if (!fileDiff || typeof requestedLine !== "number") return null;
+
+  // PHASE 0: If line_type is provided by the LLM, use it for a precise targeted match
+  // before falling back to ambiguous search across all segment types.
+  if (lineType === "ADDED" || lineType === "REMOVED") {
+    const targetSegType = lineType === "ADDED" ? DIFF_SEGMENT_TYPES.ADDED : DIFF_SEGMENT_TYPES.REMOVED;
+    for (const hunk of fileDiff.hunks || []) {
+      for (const seg of hunk.segments || []) {
+        if (seg.type !== targetSegType) continue;
+        for (const line of seg.lines || []) {
+          const matchLine = lineType === "ADDED"
+            ? (typeof line.destination === "number" ? line.destination : null)
+            : (typeof line.source === "number" ? line.source : null);
+          if (matchLine === requestedLine) {
+            log.debug(`Phase 0 exact match: ${lineType} line ${matchLine} for issue line ${requestedLine}`);
+            return {
+              line: matchLine,
+              lineType,
+              fileType: lineType === "ADDED" ? "TO" : "FROM",
+              path: lineType === "ADDED"
+                ? (fileDiff?.destination?.toString || issue.filename)
+                : (fileDiff?.source?.toString || issue.filename)
+            };
+          }
+        }
+      }
+    }
+    log.warn(`Phase 0: ${lineType} line ${requestedLine} not found in diff for ${issue.filename}, falling back`);
+  }
 
   let bestContextMatch = null;
   const originalLineMap = buildOriginalLineMap(fileDiff);
 
-  // PHASE 1: Try exact matches
+  // PHASE 1: Try exact matches across all segment types
   for (const hunk of fileDiff.hunks || []) {
     for (const seg of hunk.segments || []) {
       const segmentType = seg.type;
