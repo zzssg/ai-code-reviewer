@@ -28,9 +28,9 @@ import { createLogger, embedText, ensureIndex, getOsClient, queryLLM } from "./u
 
 const log = createLogger(import.meta.url);
 
-const REVIEW_STATE_INDEX = "tf-tools-code-review-states";
+const REVIEW_STATE_INDEX = "tftools-code-review-states";
 // Default matches the actual file in the repository
-const REVIEW_STATE_SCHEMA = process.env.EMB_OS_REVIEW_SCHEMA || "data/tf-tools-code-review-states.json";
+const REVIEW_STATE_SCHEMA = process.env.EMB_OS_REVIEW_SCHEMA || "data/tftools-code-review-states.json";
 const MAX_POSTED_ISSUES = 20;
 const ISSUE_SEVERITY_ORDER = { "CRITICAL": 1, "HIGH": 2, "MEDIUM": 3, "LOW": 4 };
 const TOP_K = 10;
@@ -314,7 +314,11 @@ function extractSnippet(fileDiff, startLine, endLine, contextLines) {
   const lines = [];
   for (const hunk of fileDiff.hunks || []) {
     for (const seg of hunk.segments || []) {
+      const isAdded = seg.type === DIFF_SEGMENT_TYPES.ADDED;
+      const isRemoved = seg.type === DIFF_SEGMENT_TYPES.REMOVED;
+
       for (const line of seg.lines || []) {
+        // Use destination-preferred number for range filtering
         const lineNum = typeof line.destination === "number"
           ? line.destination
           : typeof line.source === "number"
@@ -325,10 +329,14 @@ function extractSnippet(fileDiff, startLine, endLine, contextLines) {
         const minRange = startLine - contextLines;
         const maxRange = endLine + contextLines;
         if (lineNum >= minRange && lineNum <= maxRange) {
-          const prefix = seg.type === DIFF_SEGMENT_TYPES.ADDED ? "+"
-            : seg.type === DIFF_SEGMENT_TYPES.REMOVED ? "-"
-            : " ";
-          lines.push(prefix + line.line);
+          const prefix = isAdded ? "+" : isRemoved ? "-" : " ";
+          // Canonical line number: destination for ADDED/CONTEXT, source for REMOVED
+          const displayNum = isAdded
+            ? line.destination
+            : isRemoved
+              ? (line.source ?? line.destination)
+              : (line.destination ?? line.source);
+          lines.push(`${prefix}${displayNum}: ${line.line}`);
         }
       }
     }
@@ -578,9 +586,11 @@ export function formatIssueLocations(issue) {
       const lineNumber = typeof location?.line_number === "number"
         ? (Number.isFinite(Number(location?.line_number)) ? Number(location.line_number) : null)
         : null;
+      // REMOVED lines carry a source (FROM-side) line number; all others are destination (TO-side)
+      const sideParam = location?.line_type === "REMOVED" ? "f" : "t";
 
       return filename && lineNumber !== null
-        ? `${filename}:${lineNumber}`
+        ? `[${filename}:${lineNumber}](diff#${encodeURIComponent(filename)}?${sideParam}=${lineNumber})`
         : null;
     })
     .filter(Boolean)
@@ -671,16 +681,20 @@ export function normalizeReviewIssues(review) {
       const lineNumber = typeof location?.line_number === "number"
         ? (Number.isFinite(Number(location.line_number)) ? Number(location.line_number) : null)
         : null;
+      const lineType = ["ADDED", "REMOVED", "CONTEXT"].includes(location?.line_type)
+        ? location.line_type
+        : null;
 
       if (!filename || lineNumber === null) return null;
 
       return {
         filename,
         line_number: lineNumber,
+        line_type: lineType,
         issue_description: issueDescription,
         severity,
         suggestion,
-        locations: [{ filename, line_number: lineNumber }]
+        locations: [{ filename, line_number: lineNumber, line_type: lineType }]
       };
     }).filter(Boolean);
   });
